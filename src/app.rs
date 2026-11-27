@@ -1,64 +1,65 @@
+mod actions;
+mod events;
+mod panels;
+mod visual;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use egui::{Key, Modifiers};
 
-use crate::gpu::similarity::{find_similar_files, find_visual_duplicates};
 use crate::gpu::vram::VectorIndex;
 use crate::gpu::{spawn_gpu_worker, GpuCmd, GpuEvent};
-use crate::i18n::{strings, Locale};
-use crate::index::bitset::Bitset;
+use crate::i18n::Locale;
 use crate::index::store::ArchiveStore;
 use crate::index::worker::spawn_worker;
 use crate::messages::{SearchSnapshot, UiEvent, WorkerCmd};
 use crate::ops::journal::UndoJournal;
 use crate::telemetry::{spawn_telemetry, ResourceStats};
-use crate::ui::command_palette::{CommandPalette, PaletteCmd};
+use crate::ui::command_palette::CommandPalette;
+use crate::ui::dual_pane::DualPaneState;
 use crate::ui::folder_modal::FolderModal;
-use crate::ui::format_bytes;
-use crate::ui::grid_panel::{show_grid_panel, ViewMode};
+use crate::ui::grid_panel::ViewMode;
 use crate::ui::merge_modal::MergeModal;
 use crate::ui::preview_modal::PreviewModal;
-use crate::ui::status_bar::{show_status_bar, StatusInfo};
-use crate::ui::theme::{apply_theme, BG_CANVAS};
+use crate::ui::theme::apply_theme;
 use crate::ui::thumbs::ThumbCache;
-use crate::ui::top_bar::show_top_bar;
-use crate::ui::tree_panel::show_tree_panel;
 
 pub struct ArchiveApp {
-    locale: Locale,
-    cmd_tx: Sender<WorkerCmd>,
-    ev_rx: Receiver<UiEvent>,
-    gpu_tx: Sender<GpuCmd>,
-    gpu_rx: Receiver<GpuEvent>,
-    gpu_cancel: Arc<AtomicBool>,
-    telemetry_rx: Receiver<ResourceStats>,
-    resources: ResourceStats,
-    scan_cancel: Arc<AtomicBool>,
-    store: Option<Arc<ArchiveStore>>,
-    vector_index: Option<Arc<VectorIndex>>,
-    visual_progress: Option<(u32, u32)>,
-    visual_override: Option<Arc<[u32]>>,
-    pending_similar: Option<u32>,
-    snapshot: SearchSnapshot,
-    folder_modal: FolderModal,
-    preview_modal: PreviewModal,
-    merge_modal: MergeModal,
-    palette: CommandPalette,
-    journal: UndoJournal,
-    thumbs: ThumbCache,
-    view_mode: ViewMode,
-    query: String,
-    gen_id: u64,
-    selected_dir: Option<u32>,
-    selected_file: Option<u32>,
-    scanning: bool,
-    scan_dirs: u32,
-    scan_files: u32,
-    last_scan_ms: Option<u64>,
-    error_msg: Option<String>,
+    pub(super) locale: Locale,
+    pub(super) cmd_tx: Sender<WorkerCmd>,
+    pub(super) ev_rx: Receiver<UiEvent>,
+    pub(super) gpu_tx: Sender<GpuCmd>,
+    pub(super) gpu_rx: Receiver<GpuEvent>,
+    pub(super) gpu_cancel: Arc<AtomicBool>,
+    pub(super) telemetry_rx: Receiver<ResourceStats>,
+    pub(super) resources: ResourceStats,
+    pub(super) scan_cancel: Arc<AtomicBool>,
+    pub(super) store: Option<Arc<ArchiveStore>>,
+    pub(super) vector_index: Option<Arc<VectorIndex>>,
+    pub(super) visual_progress: Option<(u32, u32)>,
+    pub(super) visual_override: Option<Arc<[u32]>>,
+    pub(super) pending_similar: Option<u32>,
+    pub(super) snapshot: SearchSnapshot,
+    pub(super) folder_modal: FolderModal,
+    pub(super) preview_modal: PreviewModal,
+    pub(super) merge_modal: MergeModal,
+    pub(super) palette: CommandPalette,
+    pub(super) dual_pane: DualPaneState,
+    pub(super) dual_mode: bool,
+    pub(super) journal: UndoJournal,
+    pub(super) thumbs: ThumbCache,
+    pub(super) view_mode: ViewMode,
+    pub(super) query: String,
+    pub(super) gen_id: u64,
+    pub(super) selected_dir: Option<u32>,
+    pub(super) selected_file: Option<u32>,
+    pub(super) scanning: bool,
+    pub(super) scan_dirs: u32,
+    pub(super) scan_files: u32,
+    pub(super) last_scan_ms: Option<u64>,
+    pub(super) error_msg: Option<String>,
 }
 
 impl ArchiveApp {
@@ -94,6 +95,8 @@ impl ArchiveApp {
             preview_modal: PreviewModal::new(cc.egui_ctx.clone()),
             merge_modal: MergeModal::default(),
             palette: CommandPalette::default(),
+            dual_pane: DualPaneState::default(),
+            dual_mode: false,
             journal: UndoJournal::default(),
             thumbs: ThumbCache::new(cc.egui_ctx.clone()),
             view_mode: ViewMode::default(),
@@ -108,330 +111,21 @@ impl ArchiveApp {
             error_msg: None,
         }
     }
-
-    fn drain_events(&mut self) {
-        while let Ok(res) = self.telemetry_rx.try_recv() {
-            self.resources = res;
-        }
-        while let Ok(gev) = self.gpu_rx.try_recv() {
-            match gev {
-                GpuEvent::Progress { done, total } => {
-                    self.visual_progress = Some((done, total))
-                }
-                GpuEvent::Complete(idx) => {
-                    self.vector_index = Some(idx);
-                    self.visual_progress = None;
-                    if let Some(fid) = self.pending_similar.take() {
-                        self.run_find_similar(fid);
-                    }
-                }
-            }
-        }
-        while let Ok(ev) = self.ev_rx.try_recv() {
-            match ev {
-                UiEvent::ScanStarted => {
-                    self.scanning = true;
-                    self.scan_dirs = 0;
-                    self.scan_files = 0;
-                    self.error_msg = None;
-                    self.selected_dir = None;
-                    self.selected_file = None;
-                    self.vector_index = None;
-                    self.visual_override = None;
-                    self.thumbs.clear();
-                }
-                UiEvent::ScanProgress {
-                    dirs_found,
-                    files_found,
-                } => {
-                    self.scan_dirs = dirs_found;
-                    self.scan_files = files_found;
-                }
-                UiEvent::ScanComplete { store, elapsed_ms } => {
-                    self.store = Some(store);
-                    self.scanning = false;
-                    self.last_scan_ms = Some(elapsed_ms);
-                }
-                UiEvent::ScanError(msg) => {
-                    self.scanning = false;
-                    self.error_msg = Some(msg);
-                }
-                UiEvent::SearchResult(snap) => {
-                    if snap.gen_id >= self.snapshot.gen_id || snap.gen_id == 0 {
-                        self.snapshot = snap;
-                    }
-                }
-            }
-        }
-    }
-
-    fn start_visual_index(&mut self) {
-        if let Some(ref st) = self.store {
-            self.visual_progress = Some((0, 0));
-            let _ = self.gpu_tx.send(GpuCmd::IndexArchive(Arc::clone(st)));
-        }
-    }
-
-    fn run_find_similar(&mut self, fid: u32) {
-        let Some(ref idx) = self.vector_index else {
-            self.pending_similar = Some(fid);
-            self.start_visual_index();
-            return;
-        };
-        let Some(ref st) = self.store else {
-            return;
-        };
-        let results = if let Some(qvec) = (!self.query.is_empty())
-            .then(|| idx.vector_for_file(fid))
-            .flatten()
-        {
-            let mut gpu_bits = idx.match_bitset(qvec, 0.90, st.file_count());
-            let mut cpu_bits = Bitset::new_empty(st.file_count());
-            for &id in self.snapshot.matched_files.iter() {
-                cpu_bits.set(id as usize);
-            }
-            gpu_bits.and_with(&cpu_bits);
-            gpu_bits.collect_indices()
-        } else {
-            find_similar_files(idx, fid, 120, 0.90)
-        };
-        self.visual_override = Some(Arc::from(results));
-    }
-
-    fn run_find_duplicates(&mut self) {
-        if let Some(ref idx) = self.vector_index {
-            let dups = find_visual_duplicates(idx, 0.992, 500);
-            self.visual_override = Some(Arc::from(dups));
-        } else {
-            self.start_visual_index();
-        }
-    }
-
-    fn visual_status_text(&self) -> Option<String> {
-        if let Some((done, total)) = self.visual_progress {
-            return Some(format!("Visual: {done}/{total}"));
-        }
-        self.vector_index.as_ref().map(|idx| {
-            format!(
-                "Visual: {} vecs ({})",
-                idx.len(),
-                format_bytes(idx.memory_bytes() as u64)
-            )
-        })
-    }
-
-    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| {
-            i.modifiers.matches_logically(Modifiers::CTRL)
-                && (i.key_pressed(Key::K) || i.key_pressed(Key::P))
-        }) {
-            self.palette.toggle();
-            return;
-        }
-        if ctx.wants_keyboard_input() {
-            return;
-        }
-        if ctx.input(|i| i.key_pressed(Key::Space))
-            && (self.selected_file.is_some() || self.preview_modal.is_open())
-        {
-            self.preview_modal.toggle();
-        }
-        if ctx
-            .input(|i| i.modifiers.matches_logically(Modifiers::CTRL) && i.key_pressed(Key::Z))
-        {
-            self.trigger_undo();
-        }
-    }
-
-    fn apply_palette_cmd(&mut self, cmd: PaletteCmd, tr: &crate::i18n::Strings) {
-        match cmd {
-            PaletteCmd::OpenFolder => self.folder_modal.open_at(None, tr),
-            PaletteCmd::RescanFolder => self.rescan_current(),
-            PaletteCmd::OpenMerge => self.merge_modal.open_picker(self.selected_dir),
-            PaletteCmd::UndoMerge => self.trigger_undo(),
-            PaletteCmd::IndexVisual => self.start_visual_index(),
-            PaletteCmd::FindSimilar => {
-                if let Some(fid) = self.selected_file {
-                    self.run_find_similar(fid);
-                }
-            }
-            PaletteCmd::FindDuplicates => self.run_find_duplicates(),
-            PaletteCmd::ViewList => self.view_mode = ViewMode::List,
-            PaletteCmd::ViewGrid => self.view_mode = ViewMode::Grid,
-            PaletteCmd::SmartImages => {
-                self.query = "ext:jpg".to_owned();
-                self.dispatch_query();
-            }
-            PaletteCmd::SmartVideos => {
-                self.query = "ext:mp4".to_owned();
-                self.dispatch_query();
-            }
-            PaletteCmd::SmartLarge => {
-                self.query = "size:>50mb".to_owned();
-                self.dispatch_query();
-            }
-            PaletteCmd::ClearFilters => {
-                self.query.clear();
-                self.selected_dir = None;
-                self.visual_override = None;
-                self.dispatch_query();
-            }
-        }
-    }
-
-    fn trigger_undo(&mut self) {
-        match self.journal.undo_last() {
-            Ok(Some(_)) => self.rescan_current(),
-            Ok(None) => {}
-            Err(err) => self.error_msg = Some(err.to_string()),
-        }
-    }
-
-    fn rescan_current(&self) {
-        if let Some(ref st) = self.store {
-            let _ = self
-                .cmd_tx
-                .send(WorkerCmd::RescanDir(st.root().to_path_buf()));
-        }
-    }
-
-    fn dispatch_query(&mut self) {
-        self.visual_override = None;
-        self.gen_id = self.gen_id.saturating_add(1);
-        let _ = self.cmd_tx.send(WorkerCmd::Query {
-            gen_id: self.gen_id,
-            raw: self.query.clone(),
-            selected_dir: self.selected_dir,
-        });
-    }
-
-    fn render_bars(&mut self, ctx: &egui::Context) {
-        let tr = strings(self.locale);
-        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            let act = show_top_bar(
-                ui,
-                tr,
-                &mut self.query,
-                self.store.as_deref(),
-                self.selected_dir,
-                &mut self.view_mode,
-                self.scanning,
-                self.journal.can_undo(),
-            );
-            if act.pick_folder {
-                self.folder_modal.open_at(None, tr);
-            }
-            if act.open_merge {
-                self.merge_modal.open_picker(self.selected_dir);
-            }
-            if act.trigger_undo {
-                self.trigger_undo();
-            }
-            if act.go_up {
-                if let (Some(st), Some(d)) = (self.store.as_deref(), self.selected_dir) {
-                    let p = st.dir_parent.get(d as usize).copied().unwrap_or(0);
-                    self.selected_dir = (p != 0).then_some(p);
-                    self.dispatch_query();
-                }
-            } else if act.clear_selected_dir {
-                self.selected_dir = None;
-                self.dispatch_query();
-            } else if act.query_changed {
-                self.dispatch_query();
-            }
-        });
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            let info = StatusInfo {
-                store: self.store.as_deref(),
-                snapshot: &self.snapshot,
-                resources: self.resources,
-                thumb_vram_bytes: self.thumbs.vram_bytes(),
-                visual_status: self.visual_status_text(),
-                selected_file: self.selected_file,
-                scanning: self.scanning,
-                scan_dirs: self.scan_dirs,
-                scan_files: self.scan_files,
-                last_scan_ms: self.last_scan_ms,
-                error_msg: self.error_msg.as_deref(),
-            };
-            if show_status_bar(ui, tr, &info) {
-                self.scan_cancel.store(true, Ordering::Relaxed);
-                self.gpu_cancel.store(true, Ordering::Relaxed);
-            }
-        });
-    }
 }
 
 impl eframe::App for ArchiveApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let tr = strings(self.locale);
         self.drain_events();
         self.thumbs.poll_uploads(ctx);
         self.handle_shortcuts(ctx);
         self.render_bars(ctx);
 
-        egui::SidePanel::left("tree_panel")
-            .default_width(260.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                if let Some(next_dir) = show_tree_panel(
-                    ui,
-                    tr,
-                    self.store.as_deref(),
-                    &self.snapshot.visible_dirs,
-                    self.selected_dir,
-                ) {
-                    self.selected_dir = next_dir;
-                    self.dispatch_query();
-                }
-            });
         let active_files: Arc<[u32]> = self
             .visual_override
             .as_ref()
             .map_or_else(|| Arc::clone(&self.snapshot.matched_files), Arc::clone);
-
-        let mut req_similar = None;
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&ctx.style())
-                    .fill(BG_CANVAS)
-                    .inner_margin(8.0),
-            )
-            .show(ctx, |ui| {
-                let gact = show_grid_panel(
-                    ui,
-                    tr,
-                    self.store.as_deref(),
-                    &active_files,
-                    &mut self.selected_file,
-                    self.view_mode,
-                    &mut self.thumbs,
-                );
-                if gact.pick_folder {
-                    self.folder_modal.open_at(None, tr);
-                }
-                req_similar = gact.find_similar;
-            });
-        if let Some(fid) = req_similar {
-            self.run_find_similar(fid);
-        }
-        if let Some(cmd) = self.palette.show(ctx, tr) {
-            self.apply_palette_cmd(cmd, tr);
-        }
-        if let Some(dir) = self.folder_modal.show(ctx, tr) {
-            let _ = self.cmd_tx.send(WorkerCmd::ScanDir(dir));
-        }
-        if let Some(ref st) = self.store {
-            self.preview_modal
-                .show(ctx, tr, st, &active_files, &mut self.selected_file);
-            if let Some(entry) =
-                self.merge_modal
-                    .show(ctx, tr, st, &self.snapshot.visible_dirs)
-            {
-                self.journal.push(entry);
-                self.rescan_current();
-            }
-        }
+        self.render_workspace(ctx, &active_files);
+        self.render_modals(ctx, &active_files);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

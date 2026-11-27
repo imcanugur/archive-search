@@ -1,20 +1,18 @@
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::UNIX_EPOCH;
 
 use crossbeam_channel::Sender;
 use jwalk::WalkDirGeneric;
 
 use crate::error::AppError;
+use crate::index::scan_helpers::{
+    emit_progress, extract_ext_lower, read_entry_stats, should_skip_dir, EntryStats, WalkEntry,
+};
 use crate::index::store::{ArchiveStore, FileRecord};
 use crate::messages::UiEvent;
 
 const PROGRESS_BATCH: u32 = 2048;
-
-type EntryStats = Option<(u64, i64)>;
-type WalkEntry = jwalk::DirEntry<((), EntryStats)>;
 
 pub fn scan_directory(
     root: &Path,
@@ -57,20 +55,7 @@ fn walk_entries(
     ctx: &egui::Context,
     cancel: &AtomicBool,
 ) -> Result<(), AppError> {
-    let read_meta = !root.starts_with("/mnt/");
-    let walker = WalkDirGeneric::<((), EntryStats)>::new(root)
-        .skip_hidden(false)
-        .sort(true)
-        .process_read_dir(move |_depth, _path, _state, children| {
-            for entry in children.iter_mut().flatten() {
-                if entry.file_type.is_dir() && should_skip_dir(&entry.file_name) {
-                    entry.read_children_path = None;
-                } else if read_meta && entry.file_type.is_file() {
-                    entry.client_state = read_entry_stats(entry);
-                }
-            }
-        });
-
+    let walker = build_walker(root);
     let mut seen: u32 = 0;
     let mut ext_buf = String::with_capacity(16);
     for entry_res in walker {
@@ -93,27 +78,20 @@ fn walk_entries(
     Ok(())
 }
 
-fn should_skip_dir(name: &OsStr) -> bool {
-    matches!(
-        name.to_str(),
-        Some(
-            "$RECYCLE.BIN"
-                | "System Volume Information"
-                | "Recovery"
-                | "Config.Msi"
-                | "Windows"
-                | "Program Files"
-                | "Program Files (x86)"
-                | "ProgramData"
-                | ".git"
-                | "node_modules"
-                | "target"
-                | ".Trash-1000"
-                | "proc"
-                | "sys"
-                | "dev"
-        )
-    )
+fn build_walker(root: &Path) -> WalkDirGeneric<((), EntryStats)> {
+    let read_meta = !root.starts_with("/mnt/");
+    WalkDirGeneric::<((), EntryStats)>::new(root)
+        .skip_hidden(false)
+        .sort(true)
+        .process_read_dir(move |_depth, _path, _state, children| {
+            for entry in children.iter_mut().flatten() {
+                if entry.file_type.is_dir() && should_skip_dir(&entry.file_name) {
+                    entry.read_children_path = None;
+                } else if read_meta && entry.file_type.is_file() {
+                    entry.client_state = read_entry_stats(entry);
+                }
+            }
+        })
 }
 
 fn ingest_entry(
@@ -139,7 +117,6 @@ fn ingest_entry(
     if !ftype.is_file() {
         return Ok(());
     }
-
     let (size, mtime) = entry.client_state.unwrap_or((0, 0));
     extract_ext_lower(&name, ext_buf);
     let rec = FileRecord {
@@ -151,34 +128,4 @@ fn ingest_entry(
     };
     let _ = store.add_file(rec, fold_buf)?;
     Ok(())
-}
-
-fn read_entry_stats(entry: &WalkEntry) -> EntryStats {
-    let meta = entry.metadata().ok()?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| i64::try_from(d.as_secs()).ok())
-        .unwrap_or(0);
-    Some((meta.len(), mtime))
-}
-
-fn extract_ext_lower(name: &str, out: &mut String) {
-    out.clear();
-    if let Some((_, ext)) = name.rsplit_once('.') {
-        if !ext.is_empty() && ext.len() <= 16 {
-            for b in ext.bytes() {
-                out.push(b.to_ascii_lowercase() as char);
-            }
-        }
-    }
-}
-
-fn emit_progress(store: &ArchiveStore, tx: &Sender<UiEvent>, ctx: &egui::Context) {
-    let _ = tx.send(UiEvent::ScanProgress {
-        dirs_found: store.dir_count() as u32,
-        files_found: store.file_count() as u32,
-    });
-    ctx.request_repaint();
 }

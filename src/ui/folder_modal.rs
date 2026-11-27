@@ -1,9 +1,12 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use egui::{Button, Context, RichText, ScrollArea, TextEdit, Ui, Window};
+use egui::{Button, Context, RichText, TextEdit, Ui, Window};
 
 use crate::i18n::Strings;
+use crate::ui::folder_fs::{
+    default_start_dir, detect_quick_places, read_subfolders, render_dir_list,
+    render_quick_places,
+};
 use crate::ui::theme::{ACCENT, TEXT_MUTED, TEXT_PRIMARY};
 
 pub struct FolderModal {
@@ -17,10 +20,7 @@ pub struct FolderModal {
 
 impl Default for FolderModal {
     fn default() -> Self {
-        let start = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("/"));
+        let start = default_start_dir();
         Self {
             open: false,
             path_input: start.to_string_lossy().into_owned(),
@@ -58,12 +58,30 @@ impl FolderModal {
     }
 
     fn render_body(&mut self, ui: &mut Ui, tr: &Strings) -> Option<PathBuf> {
-        let mut chosen = None;
+        self.render_path_bar(ui, tr);
+        if let Some(target) = render_quick_places(ui, tr, &self.quick_places) {
+            self.navigate(target, tr);
+        }
+        if let Some(ref err) = self.error {
+            ui.label(RichText::new(err).color(egui::Color32::LIGHT_RED).small());
+        }
+        ui.separator();
+        if let Some(dir) = render_dir_list(ui, tr, &self.entries) {
+            self.navigate(dir, tr);
+        }
+        ui.separator();
+        self.render_footer(ui, tr)
+    }
+
+    fn render_path_bar(&mut self, ui: &mut Ui, tr: &Strings) {
         ui.horizontal(|ui| {
-            if ui.button(tr.modal_up_btn).clicked() {
-                if let Some(parent) = self.current.parent() {
-                    self.navigate(parent.to_path_buf(), tr);
-                }
+            if let Some(parent) = ui
+                .button(tr.modal_up_btn)
+                .clicked()
+                .then(|| self.current.parent().map(Path::to_path_buf))
+                .flatten()
+            {
+                self.navigate(parent, tr);
             }
             let edit = ui.add_sized(
                 [ui.available_width() - 56.0, 26.0],
@@ -75,13 +93,10 @@ impl FolderModal {
                 self.navigate(PathBuf::from(self.path_input.trim()), tr);
             }
         });
-        self.render_quick_places(ui, tr);
-        if let Some(ref err) = self.error {
-            ui.label(RichText::new(err).color(egui::Color32::LIGHT_RED).small());
-        }
-        ui.separator();
-        self.render_dir_list(ui, tr);
-        ui.separator();
+    }
+
+    fn render_footer(&mut self, ui: &mut Ui, tr: &Strings) -> Option<PathBuf> {
+        let mut chosen = None;
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(self.current.to_string_lossy())
@@ -106,52 +121,9 @@ impl FolderModal {
         chosen
     }
 
-    fn render_quick_places(&mut self, ui: &mut Ui, tr: &Strings) {
-        let mut jump = None;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new(tr.modal_quick_access)
-                    .small()
-                    .color(TEXT_MUTED),
-            );
-            for (label, path) in &self.quick_places {
-                if ui.small_button(label).clicked() {
-                    jump = Some(path.clone());
-                }
-            }
-        });
-        if let Some(target) = jump {
-            self.navigate(target, tr);
-        }
-    }
-
-    fn render_dir_list(&mut self, ui: &mut Ui, tr: &Strings) {
-        let mut next = None;
-        ScrollArea::vertical().max_height(270.0).show(ui, |ui| {
-            if self.entries.is_empty() {
-                ui.label(RichText::new(tr.modal_no_subfolders).color(TEXT_MUTED));
-            }
-            for dir in &self.entries {
-                let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("...");
-                if ui.selectable_label(false, name).clicked() {
-                    next = Some(dir.clone());
-                }
-            }
-        });
-        if let Some(dir) = next {
-            self.navigate(dir, tr);
-        }
-    }
-
     fn navigate(&mut self, path: PathBuf, tr: &Strings) {
-        match fs::read_dir(&path) {
-            Ok(rd) => {
-                let mut dirs: Vec<PathBuf> = rd
-                    .flatten()
-                    .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-                    .map(|e| e.path())
-                    .collect();
-                dirs.sort();
+        match read_subfolders(&path) {
+            Ok(dirs) => {
                 self.current = path.clone();
                 self.path_input = path.to_string_lossy().into_owned();
                 self.entries = dirs;
@@ -160,28 +132,4 @@ impl FolderModal {
             Err(err) => self.error = Some(format!("{}: {err}", tr.modal_open_err)),
         }
     }
-}
-
-fn detect_quick_places() -> Vec<(String, PathBuf)> {
-    let mut places = Vec::new();
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        places.push(("Home (~)".to_owned(), home));
-    }
-    places.push(("/".to_owned(), PathBuf::from("/")));
-    if let Ok(rd) = fs::read_dir("/mnt") {
-        let mut mounts: Vec<PathBuf> = rd
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-            .map(|e| e.path())
-            .collect();
-        mounts.sort();
-        for m in mounts {
-            if let Some(name) = m.file_name().and_then(|n| n.to_str()) {
-                if name.len() == 1 {
-                    places.push((format!("{}: (/mnt/{name})", name.to_uppercase()), m));
-                }
-            }
-        }
-    }
-    places
 }

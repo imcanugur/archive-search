@@ -1,98 +1,9 @@
 use egui::{Context, Key, RichText, ScrollArea, TextEdit, Window};
 
 use crate::i18n::Strings;
+pub use crate::ui::palette_entries::PaletteCmd;
+use crate::ui::palette_entries::{PaletteEntry, ENTRIES};
 use crate::ui::theme::TEXT_MUTED;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaletteCmd {
-    OpenFolder,
-    RescanFolder,
-    OpenMerge,
-    UndoMerge,
-    IndexVisual,
-    FindSimilar,
-    FindDuplicates,
-    ViewList,
-    ViewGrid,
-    SmartImages,
-    SmartVideos,
-    SmartLarge,
-    ClearFilters,
-}
-
-struct PaletteEntry {
-    label: &'static str,
-    hint: &'static str,
-    cmd: PaletteCmd,
-}
-
-const ENTRIES: &[PaletteEntry] = &[
-    PaletteEntry {
-        label: "Open Folder...",
-        hint: "Browse",
-        cmd: PaletteCmd::OpenFolder,
-    },
-    PaletteEntry {
-        label: "Rescan Folder (Refresh Cache)",
-        hint: "Disk",
-        cmd: PaletteCmd::RescanFolder,
-    },
-    PaletteEntry {
-        label: "Merge Folders (Dry-Run)...",
-        hint: "Ops",
-        cmd: PaletteCmd::OpenMerge,
-    },
-    PaletteEntry {
-        label: "Undo Last Merge",
-        hint: "Ctrl+Z",
-        cmd: PaletteCmd::UndoMerge,
-    },
-    PaletteEntry {
-        label: "Build Visual Vector Index (FP16)",
-        hint: "Visual",
-        cmd: PaletteCmd::IndexVisual,
-    },
-    PaletteEntry {
-        label: "Find Similar to Selected Image",
-        hint: "Visual",
-        cmd: PaletteCmd::FindSimilar,
-    },
-    PaletteEntry {
-        label: "Find Visual Duplicates (Dedup)",
-        hint: "Visual",
-        cmd: PaletteCmd::FindDuplicates,
-    },
-    PaletteEntry {
-        label: "Switch to Details List View",
-        hint: "View",
-        cmd: PaletteCmd::ViewList,
-    },
-    PaletteEntry {
-        label: "Switch to Thumbnail Grid View",
-        hint: "View",
-        cmd: PaletteCmd::ViewGrid,
-    },
-    PaletteEntry {
-        label: "Smart View: Images (ext:jpg)",
-        hint: "Filter",
-        cmd: PaletteCmd::SmartImages,
-    },
-    PaletteEntry {
-        label: "Smart View: Videos (ext:mp4)",
-        hint: "Filter",
-        cmd: PaletteCmd::SmartVideos,
-    },
-    PaletteEntry {
-        label: "Smart View: Large Files (>50MB)",
-        hint: "Filter",
-        cmd: PaletteCmd::SmartLarge,
-    },
-    PaletteEntry {
-        label: "Clear Search & Folder Filter",
-        hint: "Reset",
-        cmd: PaletteCmd::ClearFilters,
-    },
-];
 
 #[derive(Default)]
 pub struct CommandPalette {
@@ -154,6 +65,17 @@ impl CommandPalette {
             .filter(|e| needle.is_empty() || e.label.to_ascii_lowercase().contains(&needle))
             .collect();
 
+        if let Some(cmd) = self.handle_list_keys(ctx, &filtered) {
+            return Some(cmd);
+        }
+        render_filtered_list(ui, &filtered, self.selected)
+    }
+
+    fn handle_list_keys(
+        &mut self,
+        ctx: &Context,
+        filtered: &[&PaletteEntry],
+    ) -> Option<PaletteCmd> {
         if self.selected >= filtered.len() {
             self.selected = 0;
         }
@@ -166,21 +88,27 @@ impl CommandPalette {
         if ctx.input(|i| i.key_pressed(Key::Enter)) {
             return filtered.get(self.selected).map(|e| e.cmd);
         }
-
-        let mut clicked = None;
-        ScrollArea::vertical().show(ui, |ui| {
-            for (idx, entry) in filtered.iter().enumerate() {
-                let is_sel = idx == self.selected;
-                ui.horizontal(|ui| {
-                    if ui.selectable_label(is_sel, entry.label).clicked() {
-                        clicked = Some(entry.cmd);
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(entry.hint).small().color(TEXT_MUTED));
-                    });
-                });
-            }
-        });
-        clicked
+        None
     }
+}
+
+fn render_filtered_list(
+    ui: &mut egui::Ui,
+    filtered: &[&PaletteEntry],
+    selected: usize,
+) -> Option<PaletteCmd> {
+    let mut clicked = None;
+    ScrollArea::vertical().show(ui, |ui| {
+        for (idx, entry) in filtered.iter().enumerate() {
+            ui.horizontal(|ui| {
+                if ui.selectable_label(idx == selected, entry.label).clicked() {
+                    clicked = Some(entry.cmd);
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(entry.hint).small().color(TEXT_MUTED));
+                });
+            });
+        }
+    });
+    clicked
 }

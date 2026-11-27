@@ -1,3 +1,4 @@
+mod hash_util;
 pub mod journal;
 pub mod merger;
 

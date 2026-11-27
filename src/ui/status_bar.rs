@@ -13,7 +13,6 @@ pub struct StatusInfo<'a> {
     pub resources: ResourceStats,
     pub thumb_vram_bytes: u64,
     pub visual_status: Option<String>,
-    pub selected_file: Option<u32>,
     pub scanning: bool,
     pub scan_dirs: u32,
     pub scan_files: u32,
@@ -25,29 +24,12 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
     let mut cancel_clicked = false;
     ui.horizontal(|ui| {
         if let Some(err) = info.error_msg {
-            ui.label(
-                RichText::new(format!("{}: {err}", tr.status_error_prefix))
-                    .small()
-                    .color(Color32::LIGHT_RED),
-            );
+            let msg = format!("{}: {err}", tr.status_error_prefix);
+            ui.label(RichText::new(msg).small().color(Color32::LIGHT_RED));
             return;
         }
         if info.scanning {
-            ui.spinner();
-            ui.label(
-                RichText::new(format!(
-                    "{}: {} {}, {} {}...",
-                    tr.status_scanning,
-                    info.scan_dirs,
-                    tr.status_folders,
-                    info.scan_files,
-                    tr.status_items
-                ))
-                .small(),
-            );
-            if ui.small_button(tr.status_cancel_btn).clicked() {
-                cancel_clicked = true;
-            }
+            cancel_clicked = render_scanning_left(ui, tr, info);
             render_resources_right(ui, tr, info.resources, info.thumb_vram_bytes, None);
             return;
         }
@@ -56,33 +38,7 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
             render_resources_right(ui, tr, info.resources, info.thumb_vram_bytes, None);
             return;
         };
-
-        let search_ms = info.snapshot.elapsed_us as f64 / 1000.0;
-        let scan_label = info.last_scan_ms.map_or(String::new(), |ms| {
-            format!("  |  {}: {ms} ms", tr.status_scan)
-        });
-        let vis_label = info
-            .visual_status
-            .as_deref()
-            .map_or(String::new(), |v| format!("  |  {v}"));
-        ui.label(
-            RichText::new(format!(
-                "{} / {} {}  |  {} / {} {}  |  {}: {:.2} ms{}{}",
-                info.snapshot.matched_files.len(),
-                st.file_count(),
-                tr.status_items,
-                info.snapshot.visible_dirs.len(),
-                st.dir_count(),
-                tr.status_folders,
-                tr.status_search,
-                search_ms,
-                scan_label,
-                vis_label
-            ))
-            .small()
-            .color(TEXT_MUTED),
-        );
-
+        render_ready_left(ui, tr, st, info);
         render_resources_right(
             ui,
             tr,
@@ -91,8 +47,46 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
             Some(st.memory_bytes() as u64),
         );
     });
-    let _ = info.selected_file;
     cancel_clicked
+}
+
+fn render_scanning_left(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool {
+    ui.spinner();
+    let msg = format!(
+        "{}: {} {}, {} {}...",
+        tr.status_scanning,
+        info.scan_dirs,
+        tr.status_folders,
+        info.scan_files,
+        tr.status_items
+    );
+    ui.label(RichText::new(msg).small());
+    ui.small_button(tr.status_cancel_btn).clicked()
+}
+
+fn render_ready_left(ui: &mut Ui, tr: &Strings, st: &ArchiveStore, info: &StatusInfo<'_>) {
+    let search_ms = info.snapshot.elapsed_us as f64 / 1000.0;
+    let scan_lbl = info.last_scan_ms.map_or(String::new(), |ms| {
+        format!("  |  {}: {ms} ms", tr.status_scan)
+    });
+    let vis_lbl = info
+        .visual_status
+        .as_deref()
+        .map_or(String::new(), |v| format!("  |  {v}"));
+    let text = format!(
+        "{} / {} {}  |  {} / {} {}  |  {}: {:.2} ms{}{}",
+        info.snapshot.matched_files.len(),
+        st.file_count(),
+        tr.status_items,
+        info.snapshot.visible_dirs.len(),
+        st.dir_count(),
+        tr.status_folders,
+        tr.status_search,
+        search_ms,
+        scan_lbl,
+        vis_lbl
+    );
+    ui.label(RichText::new(text).small().color(TEXT_MUTED));
 }
 
 fn render_resources_right(
@@ -103,24 +97,21 @@ fn render_resources_right(
     idx_bytes: Option<u64>,
 ) {
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        let mut parts = Vec::new();
-        parts.push(format!("App CPU: {:.1}%", res.cpu_percent));
-        let ram = if res.rss_bytes > 0 {
-            match idx_bytes {
-                Some(idx) => format!(
-                    "App {}: {} (Idx {})",
-                    tr.status_index_ram,
-                    format_bytes(res.rss_bytes),
-                    format_bytes(idx)
-                ),
-                None => format!(
-                    "App {}: {}",
-                    tr.status_index_ram,
-                    format_bytes(res.rss_bytes)
-                ),
-            }
-        } else {
-            idx_bytes.map_or_else(String::new, |idx| format!("Idx: {}", format_bytes(idx)))
+        let mut parts = vec![format!("App CPU: {:.1}%", res.cpu_percent)];
+        let ram = match (res.rss_bytes > 0, idx_bytes) {
+            (true, Some(idx)) => format!(
+                "App {}: {} (Idx {})",
+                tr.status_index_ram,
+                format_bytes(res.rss_bytes),
+                format_bytes(idx)
+            ),
+            (true, None) => format!(
+                "App {}: {}",
+                tr.status_index_ram,
+                format_bytes(res.rss_bytes)
+            ),
+            (false, Some(idx)) => format!("Idx: {}", format_bytes(idx)),
+            (false, None) => String::new(),
         };
         if !ram.is_empty() {
             parts.push(ram);

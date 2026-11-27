@@ -5,6 +5,16 @@ use crate::index::store::ArchiveStore;
 use crate::ui::grid_panel::ViewMode;
 use crate::ui::theme::{BG_CANVAS, BORDER_SUBTLE, TEXT_MUTED};
 
+pub struct TopBarState<'a> {
+    pub query: &'a mut String,
+    pub store: Option<&'a ArchiveStore>,
+    pub selected_dir: Option<u32>,
+    pub view_mode: &'a mut ViewMode,
+    pub dual_pane: &'a mut bool,
+    pub scanning: bool,
+    pub can_undo: bool,
+}
+
 #[derive(Default)]
 pub struct TopBarAction {
     pub query_changed: bool,
@@ -15,71 +25,79 @@ pub struct TopBarAction {
     pub trigger_undo: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn show_top_bar(
-    ui: &mut Ui,
-    tr: &Strings,
-    query: &mut String,
-    store: Option<&ArchiveStore>,
-    selected_dir: Option<u32>,
-    view_mode: &mut ViewMode,
-    scanning: bool,
-    can_undo: bool,
-) -> TopBarAction {
+pub fn show_top_bar(ui: &mut Ui, tr: &Strings, st: &mut TopBarState<'_>) -> TopBarAction {
     let mut action = TopBarAction::default();
     ui.add_space(3.0);
     ui.horizontal(|ui| {
-        if ui
-            .add_enabled(!scanning, egui::Button::new(tr.open_folder_btn))
-            .clicked()
-        {
-            action.pick_folder = true;
-        }
-        let can_up = selected_dir.is_some_and(|d| d > 0);
-        if ui
-            .add_enabled(can_up, egui::Button::new(tr.up_btn))
-            .clicked()
-        {
-            action.go_up = true;
-        }
-        if ui
-            .add_enabled(
-                store.is_some() && !scanning,
-                egui::Button::new(tr.dual_merge_btn),
-            )
-            .clicked()
-        {
-            action.open_merge = true;
-        }
-        if can_undo && ui.button(tr.merge_undo_btn).clicked() {
-            action.trigger_undo = true;
-        }
-
+        render_left_buttons(ui, tr, st, &mut action);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.selectable_value(view_mode, ViewMode::Grid, tr.view_grid);
-            ui.selectable_value(view_mode, ViewMode::List, tr.view_list);
+            ui.selectable_value(st.view_mode, ViewMode::Grid, tr.view_grid);
+            ui.selectable_value(st.view_mode, ViewMode::List, tr.view_list);
             ui.separator();
-
-            if !query.is_empty() && ui.small_button("x").clicked() {
-                query.clear();
-                action.query_changed = true;
-            }
-            let search_resp = ui.add_sized(
-                [230.0, 26.0],
-                TextEdit::singleline(query)
-                    .hint_text(tr.search_hint)
-                    .margin(egui::vec2(8.0, 4.0)),
-            );
-            if search_resp.changed() {
-                action.query_changed = true;
-            }
-
+            render_search_box(ui, tr, st.query, &mut action);
             let addr_w = ui.available_width().max(100.0);
-            render_address_bar(ui, tr, store, selected_dir, addr_w, &mut action);
+            render_address_bar(ui, tr, st.store, st.selected_dir, addr_w, &mut action);
         });
     });
     ui.add_space(3.0);
     action
+}
+
+fn render_left_buttons(
+    ui: &mut Ui,
+    tr: &Strings,
+    st: &mut TopBarState<'_>,
+    action: &mut TopBarAction,
+) {
+    if ui
+        .add_enabled(!st.scanning, egui::Button::new(tr.open_folder_btn))
+        .clicked()
+    {
+        action.pick_folder = true;
+    }
+    let can_up = st.selected_dir.is_some_and(|d| d > 0);
+    if ui
+        .add_enabled(can_up, egui::Button::new(tr.up_btn))
+        .clicked()
+    {
+        action.go_up = true;
+    }
+    if ui.selectable_label(*st.dual_pane, "F2").clicked() {
+        *st.dual_pane = !*st.dual_pane;
+    }
+    if ui
+        .add_enabled(
+            st.store.is_some() && !st.scanning,
+            egui::Button::new(tr.dual_merge_btn),
+        )
+        .clicked()
+    {
+        action.open_merge = true;
+    }
+    if st.can_undo && ui.button(tr.merge_undo_btn).clicked() {
+        action.trigger_undo = true;
+    }
+}
+
+fn render_search_box(
+    ui: &mut Ui,
+    tr: &Strings,
+    query: &mut String,
+    action: &mut TopBarAction,
+) {
+    if !query.is_empty() && ui.small_button("x").clicked() {
+        query.clear();
+        action.query_changed = true;
+    }
+    let resp = ui.add_sized(
+        [220.0, 26.0],
+        TextEdit::singleline(query)
+            .hint_text(tr.search_hint)
+            .margin(egui::vec2(8.0, 4.0)),
+    );
+    if resp.changed() {
+        action.query_changed = true;
+    }
 }
 
 fn render_address_bar(
@@ -99,9 +117,9 @@ fn render_address_bar(
             ui.set_width((width - 18.0).max(60.0));
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let text = match (store, selected_dir) {
-                    (Some(st), Some(dir_id)) => st.dir_name(dir_id).to_owned(),
-                    (Some(st), None) => st.dir_name(0).to_owned(),
-                    (None, _) => tr.address_placeholder.to_owned(),
+                    (Some(s), Some(d)) => s.dir_name(d),
+                    (Some(s), None) => s.dir_name(0),
+                    (None, _) => tr.address_placeholder,
                 };
                 let color = if store.is_some() {
                     ui.visuals().text_color()

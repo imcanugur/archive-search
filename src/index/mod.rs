@@ -3,9 +3,12 @@ pub mod bitset;
 pub mod meta;
 pub mod persistence;
 pub mod query;
+mod scan_helpers;
 pub mod scanner;
 pub mod search;
 pub mod store;
+mod store_read;
+mod tree_filter;
 pub mod worker;
 
 #[derive(
