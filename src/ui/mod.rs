@@ -1,17 +1,21 @@
+mod card_paint;
+mod cards;
 pub mod command_palette;
+mod dir_row;
 pub mod dual_pane;
 pub mod filter_bar;
 mod folder_fs;
 pub mod folder_modal;
 pub mod grid_panel;
+pub mod inspector;
 mod inspector_loader;
-pub mod inspector_panel;
+mod inspector_preview;
 mod inspector_view;
 mod list_view;
 pub mod merge_drawer;
 pub mod merge_modal;
 mod merge_view;
-pub mod os_open;
+mod os_open;
 mod palette_entries;
 mod preview_loader;
 pub mod preview_modal;
@@ -20,7 +24,6 @@ pub mod status_bar;
 pub mod theme;
 mod thumb_queue;
 pub mod thumbs;
-mod tile_view;
 pub mod top_bar;
 mod top_bar_widgets;
 pub mod tree_panel;
@@ -53,4 +56,16 @@ pub fn badge_color(kind: MediaKind) -> Color32 {
         MediaKind::Video => TERTIARY,
         MediaKind::Other => ON_SURFACE_VARIANT,
     }
+}
+
+pub fn format_commas(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
 }

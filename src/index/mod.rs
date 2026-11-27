@@ -7,6 +7,7 @@ mod query_parse;
 mod scan_helpers;
 pub mod scanner;
 pub mod search;
+mod search_meta;
 mod stat_backfill;
 pub mod store;
 mod store_read;

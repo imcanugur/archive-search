@@ -84,7 +84,7 @@ fn coalesce_latest(initial: WorkerCmd, cmd_rx: &Receiver<WorkerCmd>) -> WorkerCm
                 }
             }
             WorkerCmd::Query { .. } if matches!(current, WorkerCmd::Query { .. }) => {
-                current = next;
+                current = next
             }
             WorkerCmd::Query { .. } => {}
         }
@@ -123,13 +123,8 @@ fn publish_store(w: &mut WorkerCtx, built: ArchiveStore, start: Instant) {
     let snap = execute_search(&arc, &parse_query("", None), 0);
     w.store = Some(Arc::clone(&arc));
     if !arc.sizes_populated() {
-        spawn_stat_backfill(
-            Arc::clone(&arc),
-            w.cmd_tx.clone(),
-            w.ev_tx.clone(),
-            w.ctx.clone(),
-            Arc::clone(&w.cancel),
-        );
+        let (st, cmd_tx, ev_tx) = (Arc::clone(&arc), w.cmd_tx.clone(), w.ev_tx.clone());
+        spawn_stat_backfill(st, cmd_tx, ev_tx, w.ctx.clone(), Arc::clone(&w.cancel));
     }
     let _ = w.ev_tx.send(UiEvent::ScanComplete {
         store: arc,
@@ -140,10 +135,7 @@ fn publish_store(w: &mut WorkerCtx, built: ArchiveStore, start: Instant) {
 }
 
 fn apply_backfill(w: &mut WorkerCtx, enriched: Arc<ArchiveStore>) {
-    if w.store
-        .as_ref()
-        .is_none_or(|cur| cur.root() != enriched.root())
-    {
+    if w.store.as_ref().is_none_or(|c| c.root() != enriched.root()) {
         return;
     }
     w.store = Some(Arc::clone(&enriched));

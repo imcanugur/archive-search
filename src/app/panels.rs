@@ -4,7 +4,7 @@ use crate::i18n::{strings, Strings};
 use crate::ui::status_bar::{show_status_bar, StatusInfo};
 use crate::ui::theme::{SURFACE, SURFACE_LOWEST};
 use crate::ui::top_bar::{show_top_bar, TopBarState};
-use crate::ui::tree_panel::show_tree_panel;
+use crate::ui::tree_panel::{show_tree_panel, TreeParams};
 
 use super::ArchiveApp;
 
@@ -105,14 +105,14 @@ impl ArchiveApp {
             .max_width(420.0)
             .resizable(true)
             .show(ctx, |ui| {
-                let act = show_tree_panel(
-                    ui,
-                    tr,
-                    self.store.as_deref(),
-                    &self.snapshot.visible_dirs,
-                    self.selected_dir,
-                    &mut self.merge_queue,
-                );
+                let tp = TreeParams {
+                    store: self.store.as_deref(),
+                    visible_dirs: &self.snapshot.visible_dirs,
+                    selected_dir: self.selected_dir,
+                    active_query: &self.query,
+                    visual_active: self.visual_override.is_some(),
+                };
+                let act = show_tree_panel(ui, tr, tp, &mut self.merge_queue);
                 if let Some(next_dir) = act.select_dir {
                     self.selected_dir = next_dir;
                     self.dispatch_query();

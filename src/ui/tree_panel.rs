@@ -3,12 +3,21 @@ use egui::{Frame, RichText, Rounding, ScrollArea, Stroke, Ui};
 use crate::i18n::Strings;
 use crate::index::store::ArchiveStore;
 use crate::index::VisibleDir;
-use crate::ui::smart_views::{render_dir_row, render_smart_views_card};
+use crate::ui::dir_row::render_dir_row;
+use crate::ui::smart_views::render_smart_views_card;
 use crate::ui::theme::{
     ON_SURFACE_VARIANT, OUTLINE_VARIANT, PRIMARY, SURFACE_CONTAINER, SURFACE_LOWEST,
 };
 
 const ROW_HEIGHT: f32 = 26.0;
+
+pub struct TreeParams<'a> {
+    pub store: Option<&'a ArchiveStore>,
+    pub visible_dirs: &'a [VisibleDir],
+    pub selected_dir: Option<u32>,
+    pub active_query: &'a str,
+    pub visual_active: bool,
+}
 
 #[derive(Default)]
 pub struct TreeAction {
@@ -20,20 +29,18 @@ pub struct TreeAction {
 pub fn show_tree_panel(
     ui: &mut Ui,
     tr: &Strings,
-    store: Option<&ArchiveStore>,
-    visible_dirs: &[VisibleDir],
-    selected_dir: Option<u32>,
+    p: TreeParams<'_>,
     merge_queue: &mut Vec<u32>,
 ) -> TreeAction {
     let mut act = TreeAction::default();
-    render_smart_views_card(ui, tr, store, &mut act);
+    render_smart_views_card(ui, tr, p.store, p.active_query, p.visual_active, &mut act);
     ui.add_space(6.0);
     render_dir_tree_card(
         ui,
         tr,
-        store,
-        visible_dirs,
-        selected_dir,
+        p.store,
+        p.visible_dirs,
+        p.selected_dir,
         merge_queue,
         &mut act,
     );

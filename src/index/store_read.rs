@@ -1,6 +1,7 @@
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
+use crate::index::arena::ByteArena;
 use crate::index::store::ArchiveStore;
 use crate::index::{MediaKind, Span32};
 
@@ -19,6 +20,10 @@ impl ArchiveStore {
 
     pub fn find_ext_id(&self, ext_lower: &str) -> Option<u16> {
         self.ext_map.get(ext_lower).copied()
+    }
+
+    pub fn ext_name(&self, id: u16) -> &str {
+        self.ext_table.get(id as usize).map_or("", String::as_str)
     }
 
     pub fn is_raw_ext_id(&self, id: u16) -> bool {
@@ -92,5 +97,29 @@ impl ArchiveStore {
             + self.fold_arena.len_bytes()
             + self.dir_parent.len() * dir_row
             + self.file_dir.len() * file_row
+    }
+
+    pub fn with_stats(&self, sz: Vec<u64>, mt: Vec<i64>, yr: Vec<u16>) -> Self {
+        Self {
+            root: self.root.clone(),
+            raw_arena: ByteArena::from_bytes(self.raw_arena.as_bytes().to_vec()),
+            fold_arena: ByteArena::from_bytes(self.fold_arena.as_bytes().to_vec()),
+            ext_table: self.ext_table.clone(),
+            ext_map: self.ext_map.clone(),
+            cam_table: self.cam_table.clone(),
+            dir_parent: self.dir_parent.clone(),
+            dir_raw_name: self.dir_raw_name.clone(),
+            dir_fold_name: self.dir_fold_name.clone(),
+            dir_depth: self.dir_depth.clone(),
+            file_dir: self.file_dir.clone(),
+            file_raw_name: self.file_raw_name.clone(),
+            file_fold_name: self.file_fold_name.clone(),
+            file_ext: self.file_ext.clone(),
+            file_size: sz,
+            file_mtime: mt,
+            file_year: yr,
+            file_cam: self.file_cam.clone(),
+            file_kind: self.file_kind.clone(),
+        }
     }
 }

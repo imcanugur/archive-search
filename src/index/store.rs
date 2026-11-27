@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::error::AppError;
 use crate::index::arena::{fold_into, ByteArena};
 use crate::index::meta::extract_year_from_name;
-use crate::index::stat_backfill::epoch_secs_to_year;
+use crate::index::scan_helpers::epoch_secs_to_year;
 use crate::index::{MediaKind, Span32};
 
 pub struct FileRecord<'a> {

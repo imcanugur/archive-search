@@ -1,10 +1,13 @@
-use egui::{Button, RichText, Rounding, Ui};
+use egui::{Button, RichText, Rounding, Stroke, Ui};
 
 use crate::i18n::Strings;
 use crate::index::store::ArchiveStore;
 use crate::ui::filter_bar::render_filter_bar;
 use crate::ui::grid_panel::ViewMode;
-use crate::ui::theme::{ON_SURFACE, PRIMARY, SECONDARY, SURFACE_LOWEST, TERTIARY};
+use crate::ui::theme::{
+    ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE_VARIANT, PRIMARY, SECONDARY, SURFACE_LOW,
+    SURFACE_LOWEST, TERTIARY,
+};
 use crate::ui::top_bar_widgets::{render_breadcrumbs, render_search_capsule};
 
 pub struct TopBarState<'a> {
@@ -53,33 +56,55 @@ fn render_tab_strip(
         ui.label(RichText::new(tr.app_title).strong().color(PRIMARY));
         ui.add_space(6.0);
         let root_lbl = st.store.map_or("All Media", |s| s.dir_name(0));
-        if ui
-            .selectable_label(!*st.dual_pane, format!("{root_lbl} — Explorer"))
-            .clicked()
-        {
+        if tab_pill(ui, &format!("{root_lbl} — Explorer"), !*st.dual_pane) {
             *st.dual_pane = false;
         }
-        if ui
-            .selectable_label(*st.dual_pane, "Dual Compare (F2)")
-            .clicked()
-        {
+        if tab_pill(ui, "Dual-Pane (F2)", *st.dual_pane) {
             *st.dual_pane = true;
         }
-        if ui
-            .add_enabled(!st.scanning, Button::new(tr.open_folder_btn))
-            .clicked()
-        {
+        let open_btn =
+            Button::new(RichText::new(format!("+ {}", tr.open_folder_btn)).color(PRIMARY))
+                .fill(SURFACE_LOWEST);
+        if ui.add_enabled(!st.scanning, open_btn).clicked() {
             act.pick_folder = true;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let pill = Button::new(RichText::new("Ctrl+K Palette").small().color(ON_SURFACE))
-                .fill(SURFACE_LOWEST)
-                .rounding(Rounding::same(12.0));
+            let pill = Button::new(
+                RichText::new("Ctrl+K Command Palette")
+                    .small()
+                    .color(ON_SURFACE),
+            )
+            .fill(SURFACE_LOW)
+            .rounding(Rounding::same(14.0));
             if ui.add(pill).clicked() {
                 act.open_palette = true;
             }
         });
     });
+}
+
+fn tab_pill(ui: &mut Ui, label: &str, active: bool) -> bool {
+    let (fill, stroke, col) = if active {
+        (
+            SURFACE_LOWEST,
+            Stroke::new(1.0_f32, OUTLINE_VARIANT),
+            ON_SURFACE,
+        )
+    } else {
+        (egui::Color32::TRANSPARENT, Stroke::NONE, ON_SURFACE_VARIANT)
+    };
+    let text = if active {
+        RichText::new(label).strong().color(col)
+    } else {
+        RichText::new(label).color(col)
+    };
+    ui.add(
+        Button::new(text)
+            .fill(fill)
+            .stroke(stroke)
+            .rounding(Rounding::same(6.0)),
+    )
+    .clicked()
 }
 
 fn render_command_strip(

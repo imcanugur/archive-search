@@ -64,10 +64,17 @@ impl PreviewModal {
             self.open = false;
             return;
         };
-        self.ensure_requested(store, fid);
+        if self.requested_id != Some(fid) {
+            self.requested_id = Some(fid);
+            let kind = store
+                .file_kind
+                .get(fid as usize)
+                .copied()
+                .unwrap_or(MediaKind::Other);
+            let _ = self.req_tx.send((fid, store.file_full_path(fid), kind));
+        }
 
-        let mut keep = self.open;
-        let mut close_clicked = false;
+        let (mut keep, mut close_clicked) = (self.open, false);
         let title = format!("{} — {}", tr.preview_title, store.file_name(fid));
         Window::new(title)
             .open(&mut keep)
@@ -80,9 +87,9 @@ impl PreviewModal {
                         close_clicked = ui.button(tr.preview_close).clicked();
                         if !self.meta_summary.is_empty() {
                             ui.separator();
-                            ui.label(
-                                RichText::new(&self.meta_summary).small().color(TEXT_MUTED),
-                            );
+                            let lbl =
+                                RichText::new(&self.meta_summary).small().color(TEXT_MUTED);
+                            ui.label(lbl);
                         }
                     });
                     ui.separator();
@@ -92,26 +99,11 @@ impl PreviewModal {
         self.open = keep && !close_clicked;
     }
 
-    fn ensure_requested(&mut self, store: &ArchiveStore, fid: u32) {
-        if self.requested_id == Some(fid) {
-            return;
-        }
-        self.requested_id = Some(fid);
-        let kind = store
-            .file_kind
-            .get(fid as usize)
-            .copied()
-            .unwrap_or(MediaKind::Other);
-        let _ = self.req_tx.send((fid, store.file_full_path(fid), kind));
-    }
-
     fn poll_loaded(&mut self, ctx: &Context) {
         while let Ok(res) = self.resp_rx.try_recv() {
             self.loaded_id = Some(res.file_id);
-            self.texture = None;
-            self.text_body = None;
+            (self.texture, self.text_body, self.unsupported) = (None, None, false);
             self.meta_summary = res.meta.format_summary();
-            self.unsupported = false;
             match res.payload {
                 PreviewPayload::Image {
                     width,
@@ -119,8 +111,8 @@ impl PreviewModal {
                     rgba,
                 } => {
                     let img = ColorImage::from_rgba_unmultiplied([width, height], &rgba);
-                    let tex = ctx.load_texture("preview_tex", img, TextureOptions::LINEAR);
-                    self.texture = Some(tex);
+                    self.texture =
+                        Some(ctx.load_texture("preview_tex", img, TextureOptions::LINEAR));
                 }
                 PreviewPayload::Text(txt) => self.text_body = Some(txt),
                 PreviewPayload::Unsupported => self.unsupported = true,
@@ -144,9 +136,8 @@ impl PreviewModal {
         } else if let Some(ref text) = self.text_body {
             ScrollArea::vertical().show(ui, |ui| ui.label(RichText::new(text).monospace()));
         } else if self.unsupported {
-            ui.centered_and_justified(|ui| {
-                ui.label(RichText::new(tr.preview_unsupported).color(TEXT_MUTED));
-            });
+            let msg = RichText::new(tr.preview_unsupported).color(TEXT_MUTED);
+            ui.centered_and_justified(|ui| ui.label(msg));
         }
     }
 }

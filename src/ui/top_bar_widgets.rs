@@ -3,7 +3,8 @@ use egui::{Frame, RichText, Rounding, Stroke, TextEdit, Ui};
 use crate::i18n::Strings;
 use crate::index::store::ArchiveStore;
 use crate::ui::theme::{
-    ON_SURFACE_VARIANT, OUTLINE_VARIANT, SECONDARY, SURFACE_CONTAINER, SURFACE_LOW,
+    BORDER_STRONG, ON_SURFACE_VARIANT, OUTLINE_VARIANT, SECONDARY, SECONDARY_BG,
+    SURFACE_LOWEST,
 };
 use crate::ui::top_bar::TopBarAction;
 
@@ -15,7 +16,7 @@ pub fn render_breadcrumbs(
     act: &mut TopBarAction,
 ) {
     Frame::none()
-        .fill(SURFACE_LOW)
+        .fill(SURFACE_LOWEST)
         .stroke(Stroke::new(1.0_f32, OUTLINE_VARIANT))
         .rounding(Rounding::same(6.0))
         .inner_margin(egui::Margin::symmetric(8.0, 4.0))
@@ -64,14 +65,14 @@ pub fn render_search_capsule(
     act: &mut TopBarAction,
 ) {
     Frame::none()
-        .fill(SURFACE_LOW)
-        .stroke(Stroke::new(1.0_f32, OUTLINE_VARIANT))
-        .rounding(Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(8.0, 3.0))
+        .fill(SURFACE_LOWEST)
+        .stroke(Stroke::new(1.0_f32, BORDER_STRONG))
+        .rounding(Rounding::same(14.0))
+        .inner_margin(egui::Margin::symmetric(10.0, 3.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let resp = ui.add_sized(
-                    [230.0, 22.0],
+                    [236.0, 22.0],
                     TextEdit::singleline(query)
                         .frame(false)
                         .hint_text(tr.search_hint),
@@ -85,9 +86,9 @@ pub fn render_search_capsule(
                 }
                 let ms = elapsed_us as f64 / 1000.0;
                 Frame::none()
-                    .fill(SURFACE_CONTAINER)
-                    .rounding(Rounding::same(4.0))
-                    .inner_margin(egui::Margin::symmetric(5.0, 1.0))
+                    .fill(SECONDARY_BG)
+                    .rounding(Rounding::same(10.0))
+                    .inner_margin(egui::Margin::symmetric(6.0, 1.0))
                     .show(ui, |ui| {
                         ui.label(
                             RichText::new(format!("{ms:.1} ms"))

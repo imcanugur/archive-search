@@ -5,7 +5,7 @@ mod visual;
 mod workspace;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -22,7 +22,7 @@ use crate::ui::command_palette::CommandPalette;
 use crate::ui::dual_pane::DualPaneState;
 use crate::ui::folder_modal::FolderModal;
 use crate::ui::grid_panel::ViewMode;
-use crate::ui::inspector_panel::InspectorPanel;
+use crate::ui::inspector::InspectorPanel;
 use crate::ui::merge_modal::MergeModal;
 use crate::ui::preview_modal::PreviewModal;
 use crate::ui::theme::apply_theme;
@@ -127,28 +127,5 @@ impl ArchiveApp {
             last_scan_ms: None,
             error_msg: None,
         }
-    }
-}
-
-impl eframe::App for ArchiveApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.drain_events();
-        self.thumbs.poll_uploads(ctx);
-        self.inspector.poll();
-        self.handle_shortcuts(ctx);
-        self.render_bars(ctx);
-
-        let active_files: Arc<[u32]> = self
-            .visual_override
-            .as_ref()
-            .map_or_else(|| Arc::clone(&self.snapshot.matched_files), Arc::clone);
-        self.render_workspace(ctx, &active_files);
-        self.render_modals(ctx, &active_files);
-    }
-
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.gpu_cancel.store(true, Ordering::Relaxed);
-        let _ = self.gpu_tx.send(GpuCmd::Shutdown);
-        let _ = self.cmd_tx.send(WorkerCmd::Shutdown);
     }
 }

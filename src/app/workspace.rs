@@ -1,8 +1,8 @@
 use crate::i18n::Strings;
 use crate::ops::merger::{execute_merge, plan_merge};
 use crate::ui::dual_pane::show_dual_pane;
-use crate::ui::grid_panel::show_grid_panel;
-use crate::ui::inspector_panel::InspectorAction;
+use crate::ui::grid_panel::{show_grid_panel, GridParams};
+use crate::ui::inspector::InspectorAction;
 use crate::ui::merge_drawer::show_merge_drawer;
 use crate::ui::theme::SURFACE;
 
@@ -10,10 +10,10 @@ use super::ArchiveApp;
 
 impl ArchiveApp {
     pub(super) fn render_right_inspector(&mut self, ctx: &egui::Context, tr: &Strings) {
-        if !self.show_inspector {
+        let Some(st) = self.show_inspector.then(|| self.store.clone()).flatten() else {
             return;
-        }
-        let (Some(ref st), Some(fid)) = (self.store.clone(), self.selected_file) else {
+        };
+        let Some(fid) = self.selected_file else {
             return;
         };
         let frame = egui::Frame::side_top_panel(&ctx.style())
@@ -22,10 +22,14 @@ impl ArchiveApp {
         let mut act = InspectorAction::default();
         egui::SidePanel::right("inspector_panel")
             .frame(frame)
-            .default_width(305.0)
+            .default_width(310.0)
+            .min_width(260.0)
             .resizable(true)
             .show(ctx, |ui| {
-                act = self.inspector.show(ui, tr, st, fid, &mut self.thumbs);
+                let vec_idx = self.vector_index.as_deref();
+                act = self
+                    .inspector
+                    .show(ui, tr, &st, fid, vec_idx, &mut self.thumbs);
             });
         if act.close_panel {
             self.show_inspector = false;
@@ -54,7 +58,7 @@ impl ArchiveApp {
             .inner_margin(8.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             if self.dual_mode {
-                let act = show_dual_pane(
+                let d_act = show_dual_pane(
                     ui,
                     tr,
                     self.store.as_deref(),
@@ -62,19 +66,18 @@ impl ArchiveApp {
                     &mut self.dual_pane,
                     &mut self.selected_file,
                 );
-                req_merge = act.open_merge;
-                req_sim = act.find_similar;
+                req_merge = d_act.open_merge;
+                req_sim = d_act.find_similar;
             } else {
-                self.render_queued_merge_drawer(ui, tr);
-                let gact = show_grid_panel(
-                    ui,
-                    tr,
-                    self.store.as_deref(),
-                    active,
-                    &mut self.selected_file,
-                    self.view_mode,
-                    &mut self.thumbs,
-                );
+                self.dock_merge_drawer(ui, tr);
+                let gp = GridParams {
+                    store: self.store.as_deref(),
+                    matched_files: active,
+                    is_visual_match: self.visual_override.is_some(),
+                    view_mode: self.view_mode,
+                };
+                let gact =
+                    show_grid_panel(ui, tr, gp, &mut self.selected_file, &mut self.thumbs);
                 if gact.pick_folder {
                     self.folder_modal.open_at(None, tr);
                 }
@@ -89,25 +92,31 @@ impl ArchiveApp {
         }
     }
 
-    fn render_queued_merge_drawer(&mut self, ui: &mut egui::Ui, tr: &Strings) {
-        let (Some(st), Some(&a), Some(&b)) = (
-            self.store.clone(),
-            self.merge_queue.first(),
-            self.merge_queue.get(1),
-        ) else {
+    fn dock_merge_drawer(&mut self, ui: &mut egui::Ui, tr: &Strings) {
+        let (Some(&a), Some(&b)) = (self.merge_queue.first(), self.merge_queue.get(1)) else {
             return;
         };
-        let dact = show_merge_drawer(ui, tr, &st, a, b, self.journal.can_undo());
-        ui.add_space(6.0);
-        if dact.clear_queue {
-            self.merge_queue.clear();
-        } else if dact.open_dry_run {
-            self.merge_modal.open_picker(Some(a), Some(b));
-        } else if dact.trigger_undo {
-            self.trigger_undo();
-        } else if dact.merge_now {
-            self.execute_queued_merge(&st, a, b);
-        }
+        let Some(st) = self.store.clone() else {
+            return;
+        };
+        let dock = egui::Frame::none().inner_margin(egui::Margin {
+            top: 8.0,
+            ..Default::default()
+        });
+        egui::TopBottomPanel::bottom("merge_drawer_dock")
+            .frame(dock)
+            .show_inside(ui, |ui| {
+                let dact = show_merge_drawer(ui, tr, &st, a, b, self.journal.can_undo());
+                if dact.clear_queue {
+                    self.merge_queue.clear();
+                } else if dact.open_dry_run {
+                    self.merge_modal.open_picker(Some(a), Some(b));
+                } else if dact.trigger_undo {
+                    self.trigger_undo();
+                } else if dact.merge_now {
+                    self.execute_queued_merge(&st, a, b);
+                }
+            });
     }
 
     fn execute_queued_merge(

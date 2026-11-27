@@ -1,14 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::UNIX_EPOCH;
 
 use crossbeam_channel::Sender;
 use rayon::prelude::*;
 
-use crate::index::arena::ByteArena;
 use crate::index::persistence::save_store;
+use crate::index::scan_helpers::{epoch_secs_to_year, stat_file_meta};
 use crate::index::store::ArchiveStore;
 use crate::messages::{UiEvent, WorkerCmd};
 
@@ -35,34 +34,6 @@ pub fn spawn_stat_backfill(
                 ctx.request_repaint();
             });
         });
-}
-
-fn stat_file_meta(path: &Path) -> (u64, i64) {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return (0, 1);
-    };
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| i64::try_from(d.as_secs()).ok())
-        .filter(|&s| s > 0)
-        .unwrap_or(1);
-    (meta.len(), mtime)
-}
-
-pub fn epoch_secs_to_year(secs: i64) -> u16 {
-    if secs <= 1 {
-        return 0;
-    }
-    let z = secs.div_euclid(86_400) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    u16::try_from(yoe + era * 400 + i64::from(m <= 2)).unwrap_or(0)
 }
 
 fn backfill_store_stats<F>(store: &ArchiveStore, cancel: &AtomicBool, mut on_batch: F)
@@ -94,17 +65,15 @@ where
             (start..end)
                 .into_par_iter()
                 .map(|i| {
-                    let (cs, cm) = (
-                        sz.get(i).copied().unwrap_or(0),
-                        mt.get(i).copied().unwrap_or(0),
-                    );
+                    let cs = sz.get(i).copied().unwrap_or(0);
+                    let cm = mt.get(i).copied().unwrap_or(0);
                     stat_one(store, &dir_paths, i, cs, cm)
                 })
                 .collect()
         });
         apply_chunk(&mut sz, &mut mt, &mut yr, start, &batch);
         let snap = (end == count || (chunk_idx + 1).is_multiple_of(PUBLISH_EVERY))
-            .then(|| clone_enriched(store, &sz, &mt, &yr));
+            .then(|| store.with_stats(sz.clone(), mt.clone(), yr.clone()));
         on_batch(end as u32, count as u32, snap);
     }
 }
@@ -134,45 +103,8 @@ fn apply_chunk(
         if let Some(dst) = mt.get_mut(i) {
             *dst = m;
         }
-        if let Some(y) = yr.get_mut(i) {
-            if *y == 0 && m > 1 {
-                *y = epoch_secs_to_year(m);
-            }
+        if let Some(y) = yr.get_mut(i).filter(|y| **y == 0 && m > 1) {
+            *y = epoch_secs_to_year(m);
         }
-    }
-}
-
-fn clone_enriched(store: &ArchiveStore, sz: &[u64], mt: &[i64], yr: &[u16]) -> ArchiveStore {
-    ArchiveStore {
-        root: store.root.clone(),
-        raw_arena: ByteArena::from_bytes(store.raw_arena.as_bytes().to_vec()),
-        fold_arena: ByteArena::from_bytes(store.fold_arena.as_bytes().to_vec()),
-        ext_table: store.ext_table.clone(),
-        ext_map: store.ext_map.clone(),
-        cam_table: store.cam_table.clone(),
-        dir_parent: store.dir_parent.clone(),
-        dir_raw_name: store.dir_raw_name.clone(),
-        dir_fold_name: store.dir_fold_name.clone(),
-        dir_depth: store.dir_depth.clone(),
-        file_dir: store.file_dir.clone(),
-        file_raw_name: store.file_raw_name.clone(),
-        file_fold_name: store.file_fold_name.clone(),
-        file_ext: store.file_ext.clone(),
-        file_size: sz.to_vec(),
-        file_mtime: mt.to_vec(),
-        file_year: yr.to_vec(),
-        file_cam: store.file_cam.clone(),
-        file_kind: store.file_kind.clone(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::epoch_secs_to_year;
-
-    #[test]
-    fn converts_unix_timestamp_to_year() {
-        assert_eq!(epoch_secs_to_year(1_704_067_200), 2024);
-        assert_eq!(epoch_secs_to_year(1_735_689_600), 2025);
     }
 }

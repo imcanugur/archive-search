@@ -5,10 +5,10 @@ use memchr::memmem::Finder;
 use rayon::prelude::*;
 
 use crate::index::bitset::Bitset;
-use crate::index::query::{ParsedQuery, TypeFilter};
+use crate::index::query::ParsedQuery;
+use crate::index::search_meta::meta_matches;
 use crate::index::store::ArchiveStore;
 use crate::index::tree_filter::{build_dir_allowed, collapse_dir_tree, propagate_dir_finder};
-use crate::index::MediaKind;
 use crate::messages::SearchSnapshot;
 
 const CHUNK_FILES: usize = 4096;
@@ -117,7 +117,9 @@ fn scan_chunk(ctx: &SearchCtx<'_>, chunk_idx: usize, total: usize) -> Vec<u64> {
 
 fn file_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
     let dir_id = ctx.store.file_dir.get(idx).copied().unwrap_or(0) as usize;
-    if !ctx.dir_allowed.get(dir_id) || !meta_matches(ctx, idx) {
+    if !ctx.dir_allowed.get(dir_id)
+        || !meta_matches(ctx.store, ctx.query, ctx.ext_ids, ctx.ex_ext_ids, idx)
+    {
         return false;
     }
     let fname = ctx.store.file_folded(idx as u32);
@@ -130,47 +132,4 @@ fn file_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
     !ctx.ex_finders.iter().enumerate().any(|(t, f)| {
         ctx.ex_in_dir.get(t).is_some_and(|m| m.get(dir_id)) || f.find(fname).is_some()
     })
-}
-
-fn meta_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
-    let ext_id = ctx.store.file_ext.get(idx).copied().unwrap_or(0);
-    if (!ctx.ext_ids.is_empty() && !ctx.ext_ids.contains(&ext_id))
-        || ctx.ex_ext_ids.contains(&ext_id)
-    {
-        return false;
-    }
-    if !ctx.query.type_filters.is_empty() {
-        let kind = ctx
-            .store
-            .file_kind
-            .get(idx)
-            .copied()
-            .unwrap_or(MediaKind::Other);
-        let ok = ctx.query.type_filters.iter().any(|&tf| match tf {
-            TypeFilter::Image => kind == MediaKind::Image,
-            TypeFilter::Video => kind == MediaKind::Video,
-            TypeFilter::Raw => ctx.store.is_raw_ext_id(ext_id),
-            TypeFilter::Other => kind == MediaKind::Other,
-        });
-        if !ok {
-            return false;
-        }
-    }
-    let size = ctx.store.file_size.get(idx).copied().unwrap_or(0);
-    if ctx.query.min_size.is_some_and(|m| size < m)
-        || ctx.query.max_size.is_some_and(|m| size > m)
-    {
-        return false;
-    }
-    let year = ctx.store.file_year.get(idx).copied().unwrap_or(0);
-    if ctx.query.min_year.is_some_and(|y| year == 0 || year < y)
-        || ctx.query.max_year.is_some_and(|y| year == 0 || year > y)
-    {
-        return false;
-    }
-    ctx.query.cam_filters.is_empty() || {
-        let cam_id = ctx.store.file_cam.get(idx).copied().unwrap_or(0);
-        let cam = ctx.store.cam_name(cam_id).to_ascii_lowercase();
-        ctx.query.cam_filters.iter().any(|c| cam.contains(c))
-    }
 }
