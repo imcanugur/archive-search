@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
@@ -10,6 +9,7 @@ use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use image::imageops::FilterType;
 
 use crate::index::MediaKind;
+use crate::ui::video_thumb::decode_video_rgba;
 
 const MAX_CACHED_TEXTURES: usize = 1024;
 const MAX_PENDING: usize = 64;
@@ -87,7 +87,7 @@ impl ThumbCache {
         let vid_q = LifoQueue::new();
         let (resp_tx, resp_rx) = unbounded::<ThumbResp>();
         spawn_lane(Arc::clone(&img_q), resp_tx.clone(), ctx.clone(), "img", 6);
-        spawn_lane(Arc::clone(&vid_q), resp_tx, ctx, "vid", 4);
+        spawn_lane(Arc::clone(&vid_q), resp_tx, ctx, "vid", 10);
         Self {
             img_q,
             vid_q,
@@ -196,53 +196,28 @@ fn decode_thumb(req: ThumbReq) -> ThumbResp {
         height: 0,
         rgba: Vec::new(),
     };
-    let img = match req.kind {
-        MediaKind::Image => fs::read(&req.path)
-            .ok()
-            .and_then(|b| image::load_from_memory(&b).ok()),
-        MediaKind::Video => decode_video_frame(&req.path),
+    let decoded = match req.kind {
+        MediaKind::Image => decode_image_rgba(&req.path),
+        MediaKind::Video => decode_video_rgba(&req.path, THUMB_DIM),
         MediaKind::Other => None,
     };
-    let Some(loaded) = img else {
+    let Some((width, height, rgba)) = decoded else {
         return empty;
     };
-    let thumb = loaded
-        .resize(THUMB_DIM, THUMB_DIM, FilterType::Triangle)
-        .to_rgba8();
-    let (w, h) = thumb.dimensions();
     ThumbResp {
         file_id: req.file_id,
-        width: w as usize,
-        height: h as usize,
-        rgba: thumb.into_raw(),
+        width,
+        height,
+        rgba,
     }
 }
 
-fn decode_video_frame(path: &Path) -> Option<image::DynamicImage> {
-    for seek in ["00:00:01", "00:00:00"] {
-        let out = Command::new("ffmpeg")
-            .args(["-nostdin", "-v", "error", "-ss", seek, "-i"])
-            .arg(path)
-            .args([
-                "-an",
-                "-sn",
-                "-frames:v",
-                "1",
-                "-vf",
-                "scale=160:-2",
-                "-f",
-                "image2pipe",
-                "-vcodec",
-                "png",
-                "pipe:1",
-            ])
-            .output()
-            .ok()?;
-        if out.status.success() && !out.stdout.is_empty() {
-            if let Ok(img) = image::load_from_memory(&out.stdout) {
-                return Some(img);
-            }
-        }
-    }
-    None
+fn decode_image_rgba(path: &Path) -> Option<(usize, usize, Vec<u8>)> {
+    let bytes = fs::read(path).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?;
+    let thumb = img
+        .resize(THUMB_DIM, THUMB_DIM, FilterType::Triangle)
+        .to_rgba8();
+    let (w, h) = thumb.dimensions();
+    Some((w as usize, h as usize, thumb.into_raw()))
 }

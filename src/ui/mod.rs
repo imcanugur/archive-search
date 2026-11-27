@@ -8,6 +8,7 @@ pub mod theme;
 pub mod thumbs;
 pub mod top_bar;
 pub mod tree_panel;
+pub mod video_thumb;
 
 use egui::Color32;
 

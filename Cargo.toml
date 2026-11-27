@@ -10,6 +10,7 @@ blake3 = "1"
 crossbeam-channel = "0.5"
 eframe = "0.29"
 egui = "0.29"
+ffmpeg-next = "7"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 jwalk = "0.8"
 memchr = "2"
