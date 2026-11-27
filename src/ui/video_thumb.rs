@@ -15,8 +15,8 @@ pub fn decode_video_rgba(path: &Path, max_dim: u32) -> Option<(usize, usize, Vec
     });
 
     let mut opts = ff::Dictionary::new();
-    opts.set("probesize", "131072");
-    opts.set("analyzeduration", "200000");
+    opts.set("probesize", "65536");
+    opts.set("analyzeduration", "100000");
     let mut ictx = ff::format::input_with_dictionary(path, opts)
         .or_else(|_| ff::format::input(path))
         .ok()?;

@@ -10,6 +10,7 @@ use crate::index::store::ArchiveStore;
 use crate::index::worker::spawn_worker;
 use crate::messages::{SearchSnapshot, UiEvent, WorkerCmd};
 use crate::ops::journal::UndoJournal;
+use crate::telemetry::{spawn_telemetry, ResourceStats};
 use crate::ui::command_palette::{CommandPalette, PaletteCmd};
 use crate::ui::folder_modal::FolderModal;
 use crate::ui::grid_panel::{show_grid_panel, ViewMode};
@@ -25,6 +26,8 @@ pub struct ArchiveApp {
     locale: Locale,
     cmd_tx: Sender<WorkerCmd>,
     ev_rx: Receiver<UiEvent>,
+    telemetry_rx: Receiver<ResourceStats>,
+    resources: ResourceStats,
     scan_cancel: Arc<AtomicBool>,
     store: Option<Arc<ArchiveStore>>,
     snapshot: SearchSnapshot,
@@ -51,6 +54,7 @@ impl ArchiveApp {
         apply_theme(&cc.egui_ctx);
         let (cmd_tx, cmd_rx) = unbounded();
         let (ev_tx, ev_rx) = unbounded();
+        let telemetry_rx = spawn_telemetry(cc.egui_ctx.clone());
         let scan_cancel = Arc::new(AtomicBool::new(false));
         spawn_worker(cmd_rx, ev_tx, cc.egui_ctx.clone(), Arc::clone(&scan_cancel));
         if let Some(root) = initial_root {
@@ -60,6 +64,8 @@ impl ArchiveApp {
             locale: Locale::default(),
             cmd_tx,
             ev_rx,
+            telemetry_rx,
+            resources: ResourceStats::default(),
             scan_cancel,
             store: None,
             snapshot: SearchSnapshot::default(),
@@ -83,6 +89,9 @@ impl ArchiveApp {
     }
 
     fn drain_events(&mut self) {
+        while let Ok(res) = self.telemetry_rx.try_recv() {
+            self.resources = res;
+        }
         while let Ok(ev) = self.ev_rx.try_recv() {
             match ev {
                 UiEvent::ScanStarted => {
@@ -234,6 +243,8 @@ impl ArchiveApp {
             let info = StatusInfo {
                 store: self.store.as_deref(),
                 snapshot: &self.snapshot,
+                resources: self.resources,
+                thumb_vram_bytes: self.thumbs.vram_bytes(),
                 selected_file: self.selected_file,
                 scanning: self.scanning,
                 scan_dirs: self.scan_dirs,

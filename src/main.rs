@@ -4,6 +4,7 @@ mod i18n;
 mod index;
 mod messages;
 mod ops;
+mod telemetry;
 mod ui;
 
 use std::path::PathBuf;

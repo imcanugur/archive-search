@@ -9,7 +9,7 @@ build:
 	cargo build --release
 
 run:
-	cargo run --release -- $(ARGS)
+	MALLOC_ARENA_MAX=2 cargo run --release -- $(ARGS)
 
 fmt:
 	cargo fmt --all

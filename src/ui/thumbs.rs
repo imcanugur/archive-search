@@ -11,9 +11,9 @@ use image::imageops::FilterType;
 use crate::index::MediaKind;
 use crate::ui::video_thumb::decode_video_rgba;
 
-const MAX_CACHED_TEXTURES: usize = 1024;
-const MAX_PENDING: usize = 64;
-const MAX_UPLOADS_PER_FRAME: usize = 24;
+const MAX_CACHED_TEXTURES: usize = 256;
+const MAX_PENDING: usize = 32;
+const MAX_UPLOADS_PER_FRAME: usize = 16;
 const THUMB_DIM: u32 = 160;
 
 struct ThumbReq {
@@ -86,8 +86,8 @@ impl ThumbCache {
         let img_q = LifoQueue::new();
         let vid_q = LifoQueue::new();
         let (resp_tx, resp_rx) = unbounded::<ThumbResp>();
-        spawn_lane(Arc::clone(&img_q), resp_tx.clone(), ctx.clone(), "img", 6);
-        spawn_lane(Arc::clone(&vid_q), resp_tx, ctx, "vid", 10);
+        spawn_lane(Arc::clone(&img_q), resp_tx.clone(), ctx.clone(), "img", 2);
+        spawn_lane(Arc::clone(&vid_q), resp_tx, ctx, "vid", 3);
         Self {
             img_q,
             vid_q,
@@ -97,6 +97,16 @@ impl ThumbCache {
             in_flight: HashSet::new(),
             failed: HashSet::new(),
         }
+    }
+
+    pub fn vram_bytes(&self) -> u64 {
+        self.textures
+            .values()
+            .map(|t| {
+                let [w, h] = t.size();
+                (w as u64).saturating_mul(h as u64).saturating_mul(4)
+            })
+            .sum()
     }
 
     pub fn clear(&mut self) {
