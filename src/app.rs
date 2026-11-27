@@ -2,6 +2,7 @@ mod actions;
 mod events;
 mod panels;
 mod visual;
+mod workspace;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,6 +22,7 @@ use crate::ui::command_palette::CommandPalette;
 use crate::ui::dual_pane::DualPaneState;
 use crate::ui::folder_modal::FolderModal;
 use crate::ui::grid_panel::ViewMode;
+use crate::ui::inspector_panel::InspectorPanel;
 use crate::ui::merge_modal::MergeModal;
 use crate::ui::preview_modal::PreviewModal;
 use crate::ui::theme::apply_theme;
@@ -45,9 +47,12 @@ pub struct ArchiveApp {
     pub(super) folder_modal: FolderModal,
     pub(super) preview_modal: PreviewModal,
     pub(super) merge_modal: MergeModal,
+    pub(super) inspector: InspectorPanel,
+    pub(super) show_inspector: bool,
     pub(super) palette: CommandPalette,
     pub(super) dual_pane: DualPaneState,
     pub(super) dual_mode: bool,
+    pub(super) merge_queue: Vec<u32>,
     pub(super) journal: UndoJournal,
     pub(super) thumbs: ThumbCache,
     pub(super) view_mode: ViewMode,
@@ -94,9 +99,12 @@ impl ArchiveApp {
             folder_modal: FolderModal::default(),
             preview_modal: PreviewModal::new(cc.egui_ctx.clone()),
             merge_modal: MergeModal::default(),
+            inspector: InspectorPanel::new(cc.egui_ctx.clone()),
+            show_inspector: true,
             palette: CommandPalette::default(),
             dual_pane: DualPaneState::default(),
             dual_mode: false,
+            merge_queue: Vec::new(),
             journal: UndoJournal::default(),
             thumbs: ThumbCache::new(cc.egui_ctx.clone()),
             view_mode: ViewMode::default(),
@@ -117,6 +125,7 @@ impl eframe::App for ArchiveApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
         self.thumbs.poll_uploads(ctx);
+        self.inspector.poll();
         self.handle_shortcuts(ctx);
         self.render_bars(ctx);
 

@@ -5,7 +5,7 @@ use crate::index::store::ArchiveStore;
 use crate::messages::SearchSnapshot;
 use crate::telemetry::ResourceStats;
 use crate::ui::format_bytes;
-use crate::ui::theme::TEXT_MUTED;
+use crate::ui::theme::{ON_SURFACE_VARIANT, PRIMARY, SECONDARY, TERTIARY};
 
 pub struct StatusInfo<'a> {
     pub store: Option<&'a ArchiveStore>,
@@ -25,7 +25,7 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
     ui.horizontal(|ui| {
         if let Some(err) = info.error_msg {
             let msg = format!("{}: {err}", tr.status_error_prefix);
-            ui.label(RichText::new(msg).small().color(Color32::LIGHT_RED));
+            ui.label(RichText::new(msg).small().color(Color32::from_rgb(186, 26, 26)));
             return;
         }
         if info.scanning {
@@ -34,18 +34,13 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
             return;
         }
         let Some(st) = info.store else {
-            ui.label(RichText::new(tr.status_ready).small().color(TEXT_MUTED));
+            ui.label(RichText::new(tr.status_ready).small().color(ON_SURFACE_VARIANT));
             render_resources_right(ui, tr, info.resources, info.thumb_vram_bytes, None);
             return;
         };
         render_ready_left(ui, tr, st, info);
-        render_resources_right(
-            ui,
-            tr,
-            info.resources,
-            info.thumb_vram_bytes,
-            Some(st.memory_bytes() as u64),
-        );
+        let idx = Some(st.memory_bytes() as u64);
+        render_resources_right(ui, tr, info.resources, info.thumb_vram_bytes, idx);
     });
     cancel_clicked
 }
@@ -60,21 +55,22 @@ fn render_scanning_left(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> boo
         info.scan_files,
         tr.status_items
     );
-    ui.label(RichText::new(msg).small());
+    ui.label(RichText::new(msg).small().color(PRIMARY));
     ui.small_button(tr.status_cancel_btn).clicked()
 }
 
 fn render_ready_left(ui: &mut Ui, tr: &Strings, st: &ArchiveStore, info: &StatusInfo<'_>) {
     let search_ms = info.snapshot.elapsed_us as f64 / 1000.0;
     let scan_lbl = info.last_scan_ms.map_or(String::new(), |ms| {
-        format!("  |  {}: {ms} ms", tr.status_scan)
+        format!("  •  {}: {ms} ms", tr.status_scan)
     });
     let vis_lbl = info
         .visual_status
         .as_deref()
-        .map_or(String::new(), |v| format!("  |  {v}"));
+        .map_or(String::new(), |v| format!("  •  {v}"));
+    ui.label(RichText::new("●").small().color(SECONDARY));
     let text = format!(
-        "{} / {} {}  |  {} / {} {}  |  {}: {:.2} ms{}{}",
+        "{} / {} {}  •  {} / {} {}  •  {}: {:.2} ms{}{}",
         info.snapshot.matched_files.len(),
         st.file_count(),
         tr.status_items,
@@ -86,7 +82,7 @@ fn render_ready_left(ui: &mut Ui, tr: &Strings, st: &ArchiveStore, info: &Status
         scan_lbl,
         vis_lbl
     );
-    ui.label(RichText::new(text).small().color(TEXT_MUTED));
+    ui.label(RichText::new(text).small().color(ON_SURFACE_VARIANT));
 }
 
 fn render_resources_right(
@@ -97,7 +93,13 @@ fn render_resources_right(
     idx_bytes: Option<u64>,
 ) {
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        let mut parts = vec![format!("App CPU: {:.1}%", res.cpu_percent)];
+        let app_vram = thumb_vram_bytes.saturating_add(res.app_cuda_vram_bytes);
+        ui.label(
+            RichText::new(format!("App VRAM: {}", format_bytes(app_vram)))
+                .monospace()
+                .color(PRIMARY),
+        );
+        ui.label(RichText::new("•").small().color(ON_SURFACE_VARIANT));
         let ram = match (res.rss_bytes > 0, idx_bytes) {
             (true, Some(idx)) => format!(
                 "App {}: {} (Idx {})",
@@ -114,15 +116,18 @@ fn render_resources_right(
             (false, None) => String::new(),
         };
         if !ram.is_empty() {
-            parts.push(ram);
+            ui.label(RichText::new(ram).monospace().color(ON_SURFACE_VARIANT));
+            ui.label(RichText::new("•").small().color(ON_SURFACE_VARIANT));
         }
-        let app_vram = thumb_vram_bytes.saturating_add(res.app_cuda_vram_bytes);
-        parts.push(format!("App VRAM: {}", format_bytes(app_vram)));
-        let color = if res.cpu_percent > 60.0 {
-            Color32::from_rgb(245, 175, 75)
+        let cpu_col = if res.cpu_percent > 60.0 {
+            TERTIARY
         } else {
-            Color32::from_rgb(130, 195, 155)
+            SECONDARY
         };
-        ui.label(RichText::new(parts.join("  |  ")).small().color(color));
+        ui.label(
+            RichText::new(format!("App CPU: {:.1}%", res.cpu_percent))
+                .monospace()
+                .color(cpu_col),
+        );
     });
 }

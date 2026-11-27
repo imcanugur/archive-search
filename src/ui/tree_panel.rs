@@ -1,11 +1,21 @@
-use egui::{RichText, ScrollArea, Ui};
+use egui::{Frame, RichText, Rounding, ScrollArea, Stroke, Ui};
 
 use crate::i18n::Strings;
 use crate::index::store::ArchiveStore;
 use crate::index::VisibleDir;
-use crate::ui::theme::TEXT_MUTED;
+use crate::ui::smart_views::{render_dir_row, render_smart_views_card};
+use crate::ui::theme::{
+    ON_SURFACE_VARIANT, OUTLINE_VARIANT, PRIMARY, SURFACE_CONTAINER, SURFACE_LOWEST,
+};
 
-const ROW_HEIGHT: f32 = 24.0;
+const ROW_HEIGHT: f32 = 26.0;
+
+#[derive(Default)]
+pub struct TreeAction {
+    pub select_dir: Option<Option<u32>>,
+    pub smart_query: Option<&'static str>,
+    pub find_duplicates: bool,
+}
 
 pub fn show_tree_panel(
     ui: &mut Ui,
@@ -13,70 +23,79 @@ pub fn show_tree_panel(
     store: Option<&ArchiveStore>,
     visible_dirs: &[VisibleDir],
     selected_dir: Option<u32>,
-) -> Option<Option<u32>> {
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(tr.folders_heading).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                RichText::new(format!("{}", visible_dirs.len()))
-                    .small()
-                    .color(TEXT_MUTED),
-            );
-        });
-    });
-    ui.separator();
-
-    let Some(st) = store else {
-        ui.add_space(8.0);
-        ui.label(RichText::new(tr.pick_folder_prompt).color(TEXT_MUTED));
-        return None;
-    };
-
-    let mut next_selection: Option<Option<u32>> = None;
-    ScrollArea::vertical()
-        .id_salt("dir_tree_scroll")
-        .auto_shrink([false, false])
-        .show_rows(ui, ROW_HEIGHT, visible_dirs.len(), |ui, row_range| {
-            for row in visible_dirs.get(row_range).unwrap_or(&[]) {
-                if render_dir_row(ui, st, *row, selected_dir) {
-                    let toggled = if selected_dir == Some(row.dir_id) {
-                        None
-                    } else {
-                        Some(row.dir_id)
-                    };
-                    next_selection = Some(toggled);
-                }
-            }
-        });
-    next_selection
+    merge_queue: &mut Vec<u32>,
+) -> TreeAction {
+    let mut act = TreeAction::default();
+    render_smart_views_card(ui, tr, store, &mut act);
+    ui.add_space(6.0);
+    render_dir_tree_card(
+        ui,
+        tr,
+        store,
+        visible_dirs,
+        selected_dir,
+        merge_queue,
+        &mut act,
+    );
+    act
 }
 
-fn render_dir_row(
+fn render_dir_tree_card(
     ui: &mut Ui,
-    store: &ArchiveStore,
-    row: VisibleDir,
+    tr: &Strings,
+    store: Option<&ArchiveStore>,
+    visible_dirs: &[VisibleDir],
     selected_dir: Option<u32>,
-) -> bool {
-    let is_selected = selected_dir == Some(row.dir_id);
-    let indent = f32::from(row.depth.min(12)) * 12.0;
-    let mut clicked = false;
-
-    ui.horizontal(|ui| {
-        ui.add_space(indent);
-        if ui
-            .selectable_label(is_selected, store.dir_name(row.dir_id))
-            .clicked()
-        {
-            clicked = true;
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                RichText::new(format!("{}", row.match_count))
-                    .small()
-                    .color(TEXT_MUTED),
-            );
+    merge_queue: &mut Vec<u32>,
+    act: &mut TreeAction,
+) {
+    Frame::none()
+        .fill(SURFACE_LOWEST)
+        .stroke(Stroke::new(1.0_f32, OUTLINE_VARIANT))
+        .rounding(Rounding::same(8.0))
+        .inner_margin(10.0)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(tr.folders_heading)
+                        .small()
+                        .strong()
+                        .color(ON_SURFACE_VARIANT),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let txt = format!("{} dirs", visible_dirs.len());
+                    ui.label(RichText::new(txt).monospace().color(ON_SURFACE_VARIANT));
+                });
+            });
+            ui.separator();
+            let Some(st) = store else {
+                ui.label(RichText::new(tr.pick_folder_prompt).color(ON_SURFACE_VARIANT));
+                return;
+            };
+            ScrollArea::vertical()
+                .id_salt("dir_tree_scroll")
+                .auto_shrink([false, false])
+                .show_rows(ui, ROW_HEIGHT, visible_dirs.len(), |ui, range| {
+                    for row in visible_dirs.get(range).unwrap_or(&[]) {
+                        if render_dir_row(ui, st, *row, selected_dir, merge_queue) {
+                            let toggled = (selected_dir != Some(row.dir_id)).then_some(row.dir_id);
+                            act.select_dir = Some(toggled);
+                        }
+                    }
+                });
+            if merge_queue.len() == 2 {
+                Frame::none()
+                    .fill(SURFACE_CONTAINER)
+                    .rounding(Rounding::same(6.0))
+                    .inner_margin(6.0)
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new("2 folders queued for batch merge")
+                                .small()
+                                .strong()
+                                .color(PRIMARY),
+                        );
+                    });
+            }
         });
-    });
-    clicked
 }

@@ -11,8 +11,8 @@ const CARD_GAP: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
-    #[default]
     List,
+    #[default]
     Grid,
 }
 

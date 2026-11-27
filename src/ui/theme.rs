@@ -1,33 +1,46 @@
 use egui::{Color32, Context, FontId, Rounding, Stroke, TextStyle, Visuals};
 
-pub const BG_CANVAS: Color32 = Color32::from_rgb(25, 25, 25);
-pub const BG_PANEL: Color32 = Color32::from_rgb(32, 32, 32);
-pub const BG_SURFACE: Color32 = Color32::from_rgb(40, 40, 40);
-pub const BG_HOVER: Color32 = Color32::from_rgb(49, 49, 49);
-pub const BG_SELECTED: Color32 = Color32::from_rgb(44, 62, 82);
-pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(54, 54, 54);
-pub const ACCENT: Color32 = Color32::from_rgb(76, 194, 255);
-pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(243, 243, 243);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(157, 157, 157);
+pub const SURFACE: Color32 = Color32::from_rgb(248, 249, 255);
+pub const SURFACE_LOWEST: Color32 = Color32::from_rgb(255, 255, 255);
+pub const SURFACE_LOW: Color32 = Color32::from_rgb(239, 244, 255);
+pub const SURFACE_CONTAINER: Color32 = Color32::from_rgb(229, 238, 255);
+pub const SURFACE_HIGH: Color32 = Color32::from_rgb(220, 233, 255);
+pub const PRIMARY: Color32 = Color32::from_rgb(0, 103, 192);
+pub const PRIMARY_DARK: Color32 = Color32::from_rgb(0, 79, 150);
+pub const PRIMARY_FIXED: Color32 = Color32::from_rgb(213, 227, 255);
+pub const SECONDARY: Color32 = Color32::from_rgb(0, 106, 99);
+pub const SECONDARY_BG: Color32 = Color32::from_rgb(236, 253, 245);
+pub const TERTIARY: Color32 = Color32::from_rgb(131, 57, 0);
+pub const TERTIARY_BG: Color32 = Color32::from_rgb(255, 245, 235);
+pub const ON_SURFACE: Color32 = Color32::from_rgb(11, 28, 48);
+pub const ON_SURFACE_VARIANT: Color32 = Color32::from_rgb(65, 71, 82);
+pub const OUTLINE_VARIANT: Color32 = Color32::from_rgb(193, 198, 212);
+pub const INVERSE_SURFACE: Color32 = Color32::from_rgb(33, 49, 69);
+pub const INVERSE_TEXT: Color32 = Color32::from_rgb(234, 241, 255);
+
+pub const BG_SELECTED: Color32 = SURFACE_HIGH;
+pub const ACCENT: Color32 = PRIMARY;
+pub const TEXT_PRIMARY: Color32 = Color32::WHITE;
+pub const TEXT_MUTED: Color32 = ON_SURFACE_VARIANT;
 
 pub fn apply_theme(ctx: &Context) {
-    let mut visuals = Visuals::dark();
-    visuals.panel_fill = BG_PANEL;
-    visuals.window_fill = BG_PANEL;
-    visuals.extreme_bg_color = BG_CANVAS;
-    visuals.faint_bg_color = BG_SURFACE;
-    visuals.override_text_color = Some(TEXT_PRIMARY);
-    visuals.selection.bg_fill = BG_SELECTED;
-    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
-    visuals.window_rounding = Rounding::same(6.0);
-    visuals.window_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
+    let mut visuals = Visuals::light();
+    visuals.panel_fill = SURFACE;
+    visuals.window_fill = SURFACE_LOWEST;
+    visuals.extreme_bg_color = SURFACE_LOW;
+    visuals.faint_bg_color = SURFACE_LOW;
+    visuals.override_text_color = Some(ON_SURFACE);
+    visuals.selection.bg_fill = PRIMARY_FIXED;
+    visuals.selection.stroke = Stroke::new(1.0_f32, PRIMARY);
+    visuals.window_rounding = Rounding::same(8.0);
+    visuals.window_stroke = Stroke::new(1.0_f32, OUTLINE_VARIANT);
 
     style_widgets(&mut visuals);
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.style()).clone();
-    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-    style.spacing.button_padding = egui::vec2(10.0, 4.0);
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
     style
         .text_styles
         .insert(TextStyle::Heading, FontId::proportional(15.0));
@@ -36,30 +49,33 @@ pub fn apply_theme(ctx: &Context) {
         .insert(TextStyle::Body, FontId::proportional(13.0));
     style
         .text_styles
-        .insert(TextStyle::Button, FontId::proportional(13.0));
+        .insert(TextStyle::Button, FontId::proportional(12.5));
     style
         .text_styles
         .insert(TextStyle::Small, FontId::proportional(11.5));
+    style
+        .text_styles
+        .insert(TextStyle::Monospace, FontId::monospace(11.5));
     ctx.set_style(style);
 }
 
 fn style_widgets(visuals: &mut Visuals) {
-    let r = Rounding::same(4.0);
-    visuals.widgets.noninteractive.bg_fill = BG_PANEL;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
+    let r = Rounding::same(6.0);
+    visuals.widgets.noninteractive.bg_fill = SURFACE_LOWEST;
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, OUTLINE_VARIANT);
     visuals.widgets.noninteractive.rounding = r;
 
-    visuals.widgets.inactive.bg_fill = BG_SURFACE;
+    visuals.widgets.inactive.bg_fill = SURFACE_LOW;
     visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, OUTLINE_VARIANT);
     visuals.widgets.inactive.rounding = r;
 
-    visuals.widgets.hovered.bg_fill = BG_HOVER;
-    visuals.widgets.hovered.weak_bg_fill = BG_HOVER;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
+    visuals.widgets.hovered.bg_fill = SURFACE_CONTAINER;
+    visuals.widgets.hovered.weak_bg_fill = SURFACE_CONTAINER;
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, PRIMARY);
     visuals.widgets.hovered.rounding = r;
 
-    visuals.widgets.active.bg_fill = BG_SELECTED;
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.active.bg_fill = SURFACE_HIGH;
+    visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, PRIMARY);
     visuals.widgets.active.rounding = r;
 }

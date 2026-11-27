@@ -97,11 +97,7 @@ impl PreviewModal {
             return;
         }
         self.requested_id = Some(fid);
-        let kind = store
-            .file_kind
-            .get(fid as usize)
-            .copied()
-            .unwrap_or(MediaKind::Other);
+        let kind = store.file_kind.get(fid as usize).copied().unwrap_or(MediaKind::Other);
         let _ = self.req_tx.send((fid, store.file_full_path(fid), kind));
     }
 
@@ -113,14 +109,10 @@ impl PreviewModal {
             self.meta_summary = res.meta.format_summary();
             self.unsupported = false;
             match res.payload {
-                PreviewPayload::Image {
-                    width,
-                    height,
-                    rgba,
-                } => {
+                PreviewPayload::Image { width, height, rgba } => {
                     let img = ColorImage::from_rgba_unmultiplied([width, height], &rgba);
-                    self.texture =
-                        Some(ctx.load_texture("preview_tex", img, TextureOptions::LINEAR));
+                    let tex = ctx.load_texture("preview_tex", img, TextureOptions::LINEAR);
+                    self.texture = Some(tex);
                 }
                 PreviewPayload::Text(txt) => self.text_body = Some(txt),
                 PreviewPayload::Unsupported => self.unsupported = true,
@@ -134,15 +126,11 @@ impl PreviewModal {
                 ui.spinner();
                 ui.label(tr.preview_loading);
             });
-            return;
-        }
-        if let Some(ref tex) = self.texture {
+        } else if let Some(ref tex) = self.texture {
             let avail = ui.available_size();
             let sz = tex.size_vec2();
-            let scale = (avail.x / sz.x.max(1.0))
-                .min(avail.y / sz.y.max(1.0))
-                .min(1.0);
-            ui.centered_and_justified(|ui| ui.image((tex.id(), sz * scale)));
+            let s = (avail.x / sz.x.max(1.0)).min(avail.y / sz.y.max(1.0)).min(1.0);
+            ui.centered_and_justified(|ui| ui.image((tex.id(), sz * s)));
         } else if let Some(ref text) = self.text_body {
             ScrollArea::vertical().show(ui, |ui| ui.label(RichText::new(text).monospace()));
         } else if self.unsupported {

@@ -87,21 +87,12 @@ impl MergeModal {
 
     fn render_controls(&mut self, ui: &mut Ui, tr: &Strings, store: &ArchiveStore) {
         let ready = matches!((self.dir_a, self.dir_b), (Some(a), Some(b)) if a != b);
-        let target = compute_merge_target(
-            store,
-            self.dir_a,
-            self.dir_b,
-            self.template,
-            &self.custom_fmt,
-        );
+        let target = compute_merge_target(store, self.dir_a, self.dir_b, self.template, &self.custom_fmt);
         if let Some(ref t) = target {
             let msg = format!("{} {}", tr.merge_target, t.display());
             ui.label(RichText::new(msg).small().color(TEXT_MUTED));
         }
-        if ui
-            .add_enabled(ready, Button::new(tr.merge_dry_run_btn))
-            .clicked()
-        {
+        if ui.add_enabled(ready, Button::new(tr.merge_dry_run_btn)).clicked() {
             self.run_dry_run(store, target);
         }
         if let Some(ref err) = self.error {

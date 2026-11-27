@@ -67,6 +67,7 @@ impl ArchiveApp {
         self.selected_file = None;
         self.vector_index = None;
         self.visual_override = None;
+        self.merge_queue.clear();
         self.thumbs.clear();
     }
 
