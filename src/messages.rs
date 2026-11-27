@@ -7,6 +7,7 @@ use crate::index::VisibleDir;
 #[derive(Debug)]
 pub enum WorkerCmd {
     ScanDir(PathBuf),
+    RescanDir(PathBuf),
     Query {
         gen_id: u64,
         raw: String,

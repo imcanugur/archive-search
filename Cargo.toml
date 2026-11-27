@@ -13,8 +13,10 @@ egui = "0.29"
 ffmpeg-next = "7"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 jwalk = "0.8"
+kamadak-exif = "0.5"
 memchr = "2"
 rayon = "1.10"
+rkyv = "0.8"
 thiserror = "2"
 
 [lints.clippy]

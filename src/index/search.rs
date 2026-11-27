@@ -147,6 +147,20 @@ fn file_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
     {
         return false;
     }
+    if ctx
+        .query
+        .year_filter
+        .is_some_and(|y| ctx.store.file_year.get(idx).copied().unwrap_or(0) != y)
+    {
+        return false;
+    }
+    if !ctx.query.cam_filters.is_empty() {
+        let cam_id = ctx.store.file_cam.get(idx).copied().unwrap_or(0);
+        let cam = ctx.store.cam_name(cam_id).to_ascii_lowercase();
+        if !ctx.query.cam_filters.iter().any(|c| cam.contains(c)) {
+            return false;
+        }
+    }
     let fname = ctx.store.file_folded(idx as u32);
     ctx.finders.iter().enumerate().all(|(t, f)| {
         ctx.term_in_dir.get(t).is_some_and(|m| m.get(dir_id)) || f.find(fname).is_some()

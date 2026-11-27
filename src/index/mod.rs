@@ -1,18 +1,32 @@
 pub mod arena;
 pub mod bitset;
+pub mod meta;
+pub mod persistence;
 pub mod query;
 pub mod scanner;
 pub mod search;
 pub mod store;
 pub mod worker;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct Span32 {
     pub offset: u32,
     pub len: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub enum MediaKind {
     Image,
     Video,

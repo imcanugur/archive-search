@@ -1,3 +1,4 @@
+pub mod command_palette;
 pub mod folder_modal;
 pub mod grid_panel;
 pub mod merge_modal;

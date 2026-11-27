@@ -13,6 +13,14 @@ impl ByteArena {
         }
     }
 
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     pub fn push_str(&mut self, text: &str) -> Result<Span32, AppError> {
         let offset = u32::try_from(self.bytes.len()).map_err(|_| AppError::ArenaOverflow)?;
         let len = u32::try_from(text.len()).map_err(|_| AppError::ArenaOverflow)?;

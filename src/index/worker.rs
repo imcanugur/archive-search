@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -5,6 +6,7 @@ use std::time::Instant;
 
 use crossbeam_channel::{Receiver, Sender};
 
+use crate::index::persistence::{load_store, save_store};
 use crate::index::query::parse_query;
 use crate::index::scanner::scan_directory;
 use crate::index::search::execute_search;
@@ -35,7 +37,10 @@ fn worker_loop(
         match latest {
             WorkerCmd::Shutdown => break,
             WorkerCmd::ScanDir(root) => {
-                handle_scan(root, &mut store, &ev_tx, &ctx, &cancel);
+                handle_scan(root, true, &mut store, &ev_tx, &ctx, &cancel);
+            }
+            WorkerCmd::RescanDir(root) => {
+                handle_scan(root, false, &mut store, &ev_tx, &ctx, &cancel);
             }
             WorkerCmd::Query {
                 gen_id,
@@ -58,7 +63,8 @@ fn coalesce_latest(initial: WorkerCmd, cmd_rx: &Receiver<WorkerCmd>) -> WorkerCm
     while let Ok(next) = cmd_rx.try_recv() {
         match next {
             WorkerCmd::Shutdown => return WorkerCmd::Shutdown,
-            WorkerCmd::ScanDir(path) => current = WorkerCmd::ScanDir(path),
+            WorkerCmd::ScanDir(p) => current = WorkerCmd::ScanDir(p),
+            WorkerCmd::RescanDir(p) => current = WorkerCmd::RescanDir(p),
             WorkerCmd::Query { .. } => {
                 if matches!(current, WorkerCmd::Query { .. }) {
                     current = next;
@@ -70,7 +76,8 @@ fn coalesce_latest(initial: WorkerCmd, cmd_rx: &Receiver<WorkerCmd>) -> WorkerCm
 }
 
 fn handle_scan(
-    root: std::path::PathBuf,
+    root: PathBuf,
+    use_cache: bool,
     store: &mut Option<Arc<ArchiveStore>>,
     ev_tx: &Sender<UiEvent>,
     ctx: &egui::Context,
@@ -81,22 +88,39 @@ fn handle_scan(
     ctx.request_repaint();
 
     let start = Instant::now();
+    if let Some(cached) = use_cache.then(|| load_store(&root)).flatten() {
+        publish_store(cached, start, store, ev_tx, ctx);
+        return;
+    }
     match scan_directory(&root, ev_tx, ctx, cancel) {
         Ok(built) => {
-            let arc = Arc::new(built);
-            let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-            let parsed = parse_query("", None);
-            let snap = execute_search(&arc, &parsed, 0);
-            *store = Some(Arc::clone(&arc));
-            let _ = ev_tx.send(UiEvent::ScanComplete {
-                store: arc,
-                elapsed_ms,
-            });
-            let _ = ev_tx.send(UiEvent::SearchResult(snap));
+            if !cancel.load(Ordering::Relaxed) {
+                let _ = save_store(&built);
+            }
+            publish_store(built, start, store, ev_tx, ctx);
         }
         Err(err) => {
             let _ = ev_tx.send(UiEvent::ScanError(err.to_string()));
+            ctx.request_repaint();
         }
     }
+}
+
+fn publish_store(
+    built: ArchiveStore,
+    start: Instant,
+    store: &mut Option<Arc<ArchiveStore>>,
+    ev_tx: &Sender<UiEvent>,
+    ctx: &egui::Context,
+) {
+    let arc = Arc::new(built);
+    let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let snap = execute_search(&arc, &parse_query("", None), 0);
+    *store = Some(Arc::clone(&arc));
+    let _ = ev_tx.send(UiEvent::ScanComplete {
+        store: arc,
+        elapsed_ms,
+    });
+    let _ = ev_tx.send(UiEvent::SearchResult(snap));
     ctx.request_repaint();
 }

@@ -9,6 +9,7 @@ use egui::{
 };
 
 use crate::i18n::Strings;
+use crate::index::meta::{read_media_meta, MediaMeta};
 use crate::index::store::ArchiveStore;
 use crate::index::MediaKind;
 use crate::ui::theme::TEXT_MUTED;
@@ -29,6 +30,7 @@ enum PreviewPayload {
 struct PreviewResult {
     file_id: u32,
     payload: PreviewPayload,
+    meta: MediaMeta,
 }
 
 pub struct PreviewModal {
@@ -37,6 +39,7 @@ pub struct PreviewModal {
     requested_id: Option<u32>,
     texture: Option<TextureHandle>,
     text_body: Option<String>,
+    meta_summary: String,
     unsupported: bool,
     req_tx: Sender<(u32, PathBuf, MediaKind)>,
     resp_rx: Receiver<PreviewResult>,
@@ -55,9 +58,11 @@ impl PreviewModal {
                         latest = next;
                     }
                     let payload = load_preview_payload(&latest.1, latest.2);
+                    let meta = read_media_meta(&latest.1, latest.2);
                     let _ = resp_tx.send(PreviewResult {
                         file_id: latest.0,
                         payload,
+                        meta,
                     });
                     ctx.request_repaint();
                 }
@@ -68,6 +73,7 @@ impl PreviewModal {
             requested_id: None,
             texture: None,
             text_body: None,
+            meta_summary: String::new(),
             unsupported: false,
             req_tx,
             resp_rx,
@@ -118,9 +124,17 @@ impl PreviewModal {
             .default_size([920.0, 640.0])
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
-                    if ui.button(tr.preview_close).clicked() {
-                        close_clicked = true;
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.preview_close).clicked() {
+                            close_clicked = true;
+                        }
+                        if !self.meta_summary.is_empty() {
+                            ui.separator();
+                            ui.label(
+                                RichText::new(&self.meta_summary).small().color(TEXT_MUTED),
+                            );
+                        }
+                    });
                     ui.separator();
                     self.render_content(ui, tr, fid);
                 });
@@ -133,6 +147,7 @@ impl PreviewModal {
             self.loaded_id = Some(res.file_id);
             self.texture = None;
             self.text_body = None;
+            self.meta_summary = res.meta.format_summary();
             self.unsupported = false;
             match res.payload {
                 PreviewPayload::Image {

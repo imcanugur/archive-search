@@ -5,6 +5,8 @@ pub struct ParsedQuery {
     pub terms: Vec<String>,
     pub dir_terms: Vec<String>,
     pub ext_filters: Vec<String>,
+    pub cam_filters: Vec<String>,
+    pub year_filter: Option<u16>,
     pub min_size: Option<u64>,
     pub max_size: Option<u64>,
     pub selected_dir: Option<u32>,
@@ -27,6 +29,14 @@ pub fn parse_query(raw: &str, selected_dir: Option<u32>) -> ParsedQuery {
             if !clean.is_empty() {
                 query.ext_filters.push(clean.to_owned());
             }
+        } else if let Some(val) = strip_prefix_any(&folded, &["cam:", "kam:"]) {
+            if !val.is_empty() {
+                query.cam_filters.push(val.to_owned());
+            }
+        } else if let Some(val) = strip_prefix_any(&folded, &["date:", "tarih:", "year:"]) {
+            if let Ok(y) = val.parse::<u16>() {
+                query.year_filter = Some(y);
+            }
         } else if let Some(val) = strip_prefix_any(&folded, &["boyut:", "size:"]) {
             apply_size_filter(&mut query, val);
         } else if !folded.is_empty() {
@@ -37,23 +47,14 @@ pub fn parse_query(raw: &str, selected_dir: Option<u32>) -> ParsedQuery {
 }
 
 fn strip_prefix_any<'a>(text: &'a str, prefixes: &[&str]) -> Option<&'a str> {
-    for prefix in prefixes {
-        if let Some(rest) = text.strip_prefix(prefix) {
-            return Some(rest);
-        }
-    }
-    None
+    prefixes.iter().find_map(|prefix| text.strip_prefix(prefix))
 }
 
 fn apply_size_filter(query: &mut ParsedQuery, expr: &str) {
     if let Some(rest) = expr.strip_prefix('>') {
-        if let Some(bytes) = parse_size_bytes(rest) {
-            query.min_size = Some(bytes);
-        }
+        query.min_size = parse_size_bytes(rest);
     } else if let Some(rest) = expr.strip_prefix('<') {
-        if let Some(bytes) = parse_size_bytes(rest) {
-            query.max_size = Some(bytes);
-        }
+        query.max_size = parse_size_bytes(rest);
     }
 }
 
@@ -79,9 +80,14 @@ mod tests {
 
     #[test]
     fn parses_mixed_turkish_and_meta_query() {
-        let q = parse_query("klasör:Tatil ext:.MP4 boyut:>50mb Antalya", Some(3));
+        let q = parse_query(
+            "klasör:Tatil ext:.MP4 kam:Sony tarih:2024 boyut:>50mb Antalya",
+            Some(3),
+        );
         assert_eq!(q.dir_terms, vec!["tatil"]);
         assert_eq!(q.ext_filters, vec!["mp4"]);
+        assert_eq!(q.cam_filters, vec!["sony"]);
+        assert_eq!(q.year_filter, Some(2024));
         assert_eq!(q.min_size, Some(50 * 1024 * 1024));
         assert_eq!(q.terms, vec!["antalya"]);
         assert_eq!(q.selected_dir, Some(3));

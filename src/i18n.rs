@@ -58,6 +58,8 @@ pub struct Strings {
     pub merge_summary_moves: &'static str,
     pub merge_summary_dups: &'static str,
     pub merge_summary_renames: &'static str,
+    pub palette_title: &'static str,
+    pub palette_hint: &'static str,
 }
 
 pub const EN: Strings = Strings {
@@ -113,6 +115,8 @@ pub const EN: Strings = Strings {
     merge_summary_moves: "Files to move",
     merge_summary_dups: "Identical duplicates skipped",
     merge_summary_renames: "Renamed conflicts (_1, _2)",
+    palette_title: "Command Palette (Ctrl+K)",
+    palette_hint: "Type a command or Smart View...",
 };
 
 pub const fn strings(locale: Locale) -> &'static Strings {

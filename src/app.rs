@@ -10,6 +10,7 @@ use crate::index::store::ArchiveStore;
 use crate::index::worker::spawn_worker;
 use crate::messages::{SearchSnapshot, UiEvent, WorkerCmd};
 use crate::ops::journal::UndoJournal;
+use crate::ui::command_palette::{CommandPalette, PaletteCmd};
 use crate::ui::folder_modal::FolderModal;
 use crate::ui::grid_panel::{show_grid_panel, ViewMode};
 use crate::ui::merge_modal::MergeModal;
@@ -30,6 +31,7 @@ pub struct ArchiveApp {
     folder_modal: FolderModal,
     preview_modal: PreviewModal,
     merge_modal: MergeModal,
+    palette: CommandPalette,
     journal: UndoJournal,
     thumbs: ThumbCache,
     view_mode: ViewMode,
@@ -64,6 +66,7 @@ impl ArchiveApp {
             folder_modal: FolderModal::default(),
             preview_modal: PreviewModal::new(cc.egui_ctx.clone()),
             merge_modal: MergeModal::default(),
+            palette: CommandPalette::default(),
             journal: UndoJournal::default(),
             thumbs: ThumbCache::new(cc.egui_ctx.clone()),
             view_mode: ViewMode::default(),
@@ -117,6 +120,13 @@ impl ArchiveApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| {
+            i.modifiers.matches_logically(Modifiers::CTRL)
+                && (i.key_pressed(Key::K) || i.key_pressed(Key::P))
+        }) {
+            self.palette.toggle();
+            return;
+        }
         if ctx.wants_keyboard_input() {
             return;
         }
@@ -132,6 +142,34 @@ impl ArchiveApp {
         }
     }
 
+    fn apply_palette_cmd(&mut self, cmd: PaletteCmd, tr: &crate::i18n::Strings) {
+        match cmd {
+            PaletteCmd::OpenFolder => self.folder_modal.open_at(None, tr),
+            PaletteCmd::RescanFolder => self.rescan_current(),
+            PaletteCmd::OpenMerge => self.merge_modal.open_picker(self.selected_dir),
+            PaletteCmd::UndoMerge => self.trigger_undo(),
+            PaletteCmd::ViewList => self.view_mode = ViewMode::List,
+            PaletteCmd::ViewGrid => self.view_mode = ViewMode::Grid,
+            PaletteCmd::SmartImages => {
+                self.query = "ext:jpg".to_owned();
+                self.dispatch_query();
+            }
+            PaletteCmd::SmartVideos => {
+                self.query = "ext:mp4".to_owned();
+                self.dispatch_query();
+            }
+            PaletteCmd::SmartLarge => {
+                self.query = "size:>50mb".to_owned();
+                self.dispatch_query();
+            }
+            PaletteCmd::ClearFilters => {
+                self.query.clear();
+                self.selected_dir = None;
+                self.dispatch_query();
+            }
+        }
+    }
+
     fn trigger_undo(&mut self) {
         match self.journal.undo_last() {
             Ok(Some(_)) => self.rescan_current(),
@@ -144,7 +182,7 @@ impl ArchiveApp {
         if let Some(ref st) = self.store {
             let _ = self
                 .cmd_tx
-                .send(WorkerCmd::ScanDir(st.root().to_path_buf()));
+                .send(WorkerCmd::RescanDir(st.root().to_path_buf()));
         }
     }
 
@@ -252,6 +290,9 @@ impl eframe::App for ArchiveApp {
                     self.folder_modal.open_at(None, tr);
                 }
             });
+        if let Some(cmd) = self.palette.show(ctx, tr) {
+            self.apply_palette_cmd(cmd, tr);
+        }
         if let Some(dir) = self.folder_modal.show(ctx, tr) {
             let _ = self.cmd_tx.send(WorkerCmd::ScanDir(dir));
         }

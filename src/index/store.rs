@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::mem::size_of;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 use crate::index::arena::{fold_into, ByteArena};
+use crate::index::meta::extract_year_from_name;
 use crate::index::{MediaKind, Span32};
 
 pub struct FileRecord<'a> {
@@ -16,21 +17,24 @@ pub struct FileRecord<'a> {
 
 #[derive(Debug)]
 pub struct ArchiveStore {
-    root: PathBuf,
-    raw_arena: ByteArena,
-    fold_arena: ByteArena,
-    ext_table: Vec<String>,
-    ext_map: HashMap<String, u16>,
+    pub(crate) root: PathBuf,
+    pub(crate) raw_arena: ByteArena,
+    pub(crate) fold_arena: ByteArena,
+    pub(crate) ext_table: Vec<String>,
+    pub(crate) ext_map: HashMap<String, u16>,
+    pub(crate) cam_table: Vec<String>,
     pub(crate) dir_parent: Vec<u32>,
-    dir_raw_name: Vec<Span32>,
-    dir_fold_name: Vec<Span32>,
+    pub(crate) dir_raw_name: Vec<Span32>,
+    pub(crate) dir_fold_name: Vec<Span32>,
     pub(crate) dir_depth: Vec<u16>,
     pub(crate) file_dir: Vec<u32>,
-    file_raw_name: Vec<Span32>,
-    file_fold_name: Vec<Span32>,
+    pub(crate) file_raw_name: Vec<Span32>,
+    pub(crate) file_fold_name: Vec<Span32>,
     pub(crate) file_ext: Vec<u16>,
     pub(crate) file_size: Vec<u64>,
-    file_mtime: Vec<i64>,
+    pub(crate) file_mtime: Vec<i64>,
+    pub(crate) file_year: Vec<u16>,
+    pub(crate) file_cam: Vec<u16>,
     pub(crate) file_kind: Vec<MediaKind>,
 }
 
@@ -44,6 +48,7 @@ impl ArchiveStore {
             fold_arena: ByteArena::with_capacity(1024 * 1024),
             ext_table: vec![String::new()],
             ext_map,
+            cam_table: vec![String::new()],
             dir_parent: Vec::with_capacity(4096),
             dir_raw_name: Vec::with_capacity(4096),
             dir_fold_name: Vec::with_capacity(4096),
@@ -54,6 +59,8 @@ impl ArchiveStore {
             file_ext: Vec::with_capacity(65_536),
             file_size: Vec::with_capacity(65_536),
             file_mtime: Vec::with_capacity(65_536),
+            file_year: Vec::with_capacity(65_536),
+            file_cam: Vec::with_capacity(65_536),
             file_kind: Vec::with_capacity(65_536),
         }
     }
@@ -86,12 +93,15 @@ impl ArchiveStore {
         fold_into(rec.name, fold_buf);
         let fold_span = self.fold_arena.push_str(fold_buf)?;
         let ext_id = self.intern_ext(rec.ext);
+        let year = extract_year_from_name(rec.name);
         self.file_dir.push(rec.dir_id);
         self.file_raw_name.push(raw_span);
         self.file_fold_name.push(fold_span);
         self.file_ext.push(ext_id);
         self.file_size.push(rec.size);
         self.file_mtime.push(rec.mtime);
+        self.file_year.push(year);
+        self.file_cam.push(0);
         self.file_kind.push(MediaKind::from_ext(rec.ext));
         Ok(id)
     }
@@ -109,20 +119,20 @@ impl ArchiveStore {
         id
     }
 
-    pub fn root(&self) -> &std::path::Path {
+    pub fn root(&self) -> &Path {
         &self.root
     }
-
     pub fn dir_count(&self) -> usize {
         self.dir_parent.len()
     }
-
     pub fn file_count(&self) -> usize {
         self.file_dir.len()
     }
-
     pub fn find_ext_id(&self, ext_lower: &str) -> Option<u16> {
         self.ext_map.get(ext_lower).copied()
+    }
+    pub fn cam_name(&self, id: u16) -> &str {
+        self.cam_table.get(id as usize).map_or("", String::as_str)
     }
 
     pub fn dir_name(&self, id: u32) -> &str {
@@ -172,13 +182,13 @@ impl ArchiveStore {
         let dir_row = size_of::<u32>() + size_of::<Span32>() * 2 + size_of::<u16>();
         let file_row = size_of::<u32>()
             + size_of::<Span32>() * 2
-            + size_of::<u16>()
+            + size_of::<u16>() * 3
             + size_of::<u64>()
+            + size_of::<i64>()
             + size_of::<MediaKind>();
         self.raw_arena.len_bytes()
             + self.fold_arena.len_bytes()
             + self.dir_parent.len() * dir_row
             + self.file_dir.len() * file_row
-            + self.file_mtime.len() * size_of::<i64>()
     }
 }
