@@ -25,7 +25,8 @@ pub fn handle_file_interaction(
     store: &ArchiveStore,
     fid: u32,
     selected_file: &mut Option<u32>,
-) {
+) -> Option<u32> {
+    let mut find_similar = None;
     if resp.clicked() {
         *selected_file = Some(fid);
     }
@@ -49,7 +50,13 @@ pub fn handle_file_interaction(
                 .copy_text(store.file_full_path(fid).to_string_lossy().into_owned());
             ui.close_menu();
         }
+        ui.separator();
+        if ui.button(tr.ctx_find_similar).clicked() {
+            find_similar = Some(fid);
+            ui.close_menu();
+        }
     });
+    find_similar
 }
 
 fn open_wsl_windows(path: &Path) -> bool {

@@ -20,6 +20,12 @@ pub enum ViewMode {
     Grid,
 }
 
+#[derive(Default)]
+pub struct GridAction {
+    pub pick_folder: bool,
+    pub find_similar: Option<u32>,
+}
+
 pub fn show_grid_panel(
     ui: &mut Ui,
     tr: &Strings,
@@ -28,21 +34,23 @@ pub fn show_grid_panel(
     selected_file: &mut Option<u32>,
     view_mode: ViewMode,
     thumbs: &mut ThumbCache,
-) -> bool {
+) -> GridAction {
+    let mut act = GridAction::default();
     let Some(st) = store else {
-        return render_empty_state(ui, tr);
+        act.pick_folder = render_empty_state(ui, tr);
+        return act;
     };
     if matched_files.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(RichText::new(tr.no_matches).color(TEXT_MUTED));
         });
-        return false;
+        return act;
     }
-    match view_mode {
+    act.find_similar = match view_mode {
         ViewMode::List => render_list_view(ui, tr, st, matched_files, selected_file),
         ViewMode::Grid => render_grid_view(ui, tr, st, matched_files, selected_file, thumbs),
-    }
-    false
+    };
+    act
 }
 
 fn render_empty_state(ui: &mut Ui, tr: &Strings) -> bool {
@@ -64,7 +72,7 @@ fn render_list_view(
     store: &ArchiveStore,
     matched_files: &[u32],
     selected_file: &mut Option<u32>,
-) {
+) -> Option<u32> {
     let w = ui.available_width().max(400.0);
     let cols = [(w * 0.48).max(180.0), (w * 0.28).max(110.0), 64.0_f32];
     ui.horizontal(|ui| {
@@ -84,14 +92,18 @@ fn render_list_view(
     });
     ui.separator();
 
+    let mut find_sim = None;
     ScrollArea::vertical()
         .id_salt("file_list_scroll")
         .auto_shrink([false, false])
         .show_rows(ui, ROW_HEIGHT, matched_files.len(), |ui, range| {
             for &fid in matched_files.get(range).unwrap_or(&[]) {
-                render_list_row(ui, tr, store, fid, cols, selected_file);
+                if let Some(id) = render_list_row(ui, tr, store, fid, cols, selected_file) {
+                    find_sim = Some(id);
+                }
             }
         });
+    find_sim
 }
 
 fn render_list_row(
@@ -101,7 +113,7 @@ fn render_list_row(
     fid: u32,
     cols: [f32; 3],
     selected_file: &mut Option<u32>,
-) {
+) -> Option<u32> {
     let is_sel = *selected_file == Some(fid);
     let kind = store
         .file_kind
@@ -147,7 +159,7 @@ fn render_list_row(
         })
         .response
         .interact(Sense::click());
-    handle_file_interaction(&resp, tr, store, fid, selected_file);
+    handle_file_interaction(&resp, tr, store, fid, selected_file)
 }
 
 fn render_grid_view(
@@ -157,11 +169,12 @@ fn render_grid_view(
     matched_files: &[u32],
     selected_file: &mut Option<u32>,
     thumbs: &mut ThumbCache,
-) {
+) -> Option<u32> {
     let cols = ((ui.available_width().max(CARD_WIDTH) / (CARD_WIDTH + CARD_GAP)).floor()
         as usize)
         .max(1);
     let rows = matched_files.len().div_ceil(cols);
+    let mut find_sim = None;
     ScrollArea::vertical()
         .id_salt("file_grid_scroll")
         .auto_shrink([false, false])
@@ -172,11 +185,16 @@ fn render_grid_view(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = CARD_GAP;
                     for &fid in matched_files.get(start..end).unwrap_or(&[]) {
-                        render_tile(ui, tr, store, fid, selected_file, thumbs);
+                        if let Some(id) =
+                            render_tile(ui, tr, store, fid, selected_file, thumbs)
+                        {
+                            find_sim = Some(id);
+                        }
                     }
                 });
             }
         });
+    find_sim
 }
 
 fn render_tile(
@@ -186,7 +204,7 @@ fn render_tile(
     fid: u32,
     selected_file: &mut Option<u32>,
     thumbs: &mut ThumbCache,
-) {
+) -> Option<u32> {
     let is_sel = *selected_file == Some(fid);
     let kind = store
         .file_kind
@@ -240,5 +258,5 @@ fn render_tile(
         })
         .response
         .interact(Sense::click());
-    handle_file_interaction(&resp, tr, store, fid, selected_file);
+    handle_file_interaction(&resp, tr, store, fid, selected_file)
 }

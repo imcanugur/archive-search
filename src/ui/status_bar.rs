@@ -12,6 +12,7 @@ pub struct StatusInfo<'a> {
     pub snapshot: &'a SearchSnapshot,
     pub resources: ResourceStats,
     pub thumb_vram_bytes: u64,
+    pub visual_status: Option<String>,
     pub selected_file: Option<u32>,
     pub scanning: bool,
     pub scan_dirs: u32,
@@ -60,9 +61,13 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
         let scan_label = info.last_scan_ms.map_or(String::new(), |ms| {
             format!("  |  {}: {ms} ms", tr.status_scan)
         });
+        let vis_label = info
+            .visual_status
+            .as_deref()
+            .map_or(String::new(), |v| format!("  |  {v}"));
         ui.label(
             RichText::new(format!(
-                "{} / {} {}  |  {} / {} {}  |  {}: {:.2} ms{}",
+                "{} / {} {}  |  {} / {} {}  |  {}: {:.2} ms{}{}",
                 info.snapshot.matched_files.len(),
                 st.file_count(),
                 tr.status_items,
@@ -71,7 +76,8 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
                 tr.status_folders,
                 tr.status_search,
                 search_ms,
-                scan_label
+                scan_label,
+                vis_label
             ))
             .small()
             .color(TEXT_MUTED),

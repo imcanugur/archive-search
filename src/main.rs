@@ -1,5 +1,6 @@
 mod app;
 mod error;
+mod gpu;
 mod i18n;
 mod index;
 mod messages;

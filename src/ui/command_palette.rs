@@ -9,6 +9,9 @@ pub enum PaletteCmd {
     RescanFolder,
     OpenMerge,
     UndoMerge,
+    IndexVisual,
+    FindSimilar,
+    FindDuplicates,
     ViewList,
     ViewGrid,
     SmartImages,
@@ -43,6 +46,21 @@ const ENTRIES: &[PaletteEntry] = &[
         label: "Undo Last Merge",
         hint: "Ctrl+Z",
         cmd: PaletteCmd::UndoMerge,
+    },
+    PaletteEntry {
+        label: "Build Visual Vector Index (FP16)",
+        hint: "Visual",
+        cmd: PaletteCmd::IndexVisual,
+    },
+    PaletteEntry {
+        label: "Find Similar to Selected Image",
+        hint: "Visual",
+        cmd: PaletteCmd::FindSimilar,
+    },
+    PaletteEntry {
+        label: "Find Visual Duplicates (Dedup)",
+        hint: "Visual",
+        cmd: PaletteCmd::FindDuplicates,
     },
     PaletteEntry {
         label: "Switch to Details List View",

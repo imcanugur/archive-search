@@ -5,7 +5,11 @@ use std::sync::Arc;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use egui::{Key, Modifiers};
 
+use crate::gpu::similarity::{find_similar_files, find_visual_duplicates};
+use crate::gpu::vram::VectorIndex;
+use crate::gpu::{spawn_gpu_worker, GpuCmd, GpuEvent};
 use crate::i18n::{strings, Locale};
+use crate::index::bitset::Bitset;
 use crate::index::store::ArchiveStore;
 use crate::index::worker::spawn_worker;
 use crate::messages::{SearchSnapshot, UiEvent, WorkerCmd};
@@ -13,6 +17,7 @@ use crate::ops::journal::UndoJournal;
 use crate::telemetry::{spawn_telemetry, ResourceStats};
 use crate::ui::command_palette::{CommandPalette, PaletteCmd};
 use crate::ui::folder_modal::FolderModal;
+use crate::ui::format_bytes;
 use crate::ui::grid_panel::{show_grid_panel, ViewMode};
 use crate::ui::merge_modal::MergeModal;
 use crate::ui::preview_modal::PreviewModal;
@@ -26,10 +31,17 @@ pub struct ArchiveApp {
     locale: Locale,
     cmd_tx: Sender<WorkerCmd>,
     ev_rx: Receiver<UiEvent>,
+    gpu_tx: Sender<GpuCmd>,
+    gpu_rx: Receiver<GpuEvent>,
+    gpu_cancel: Arc<AtomicBool>,
     telemetry_rx: Receiver<ResourceStats>,
     resources: ResourceStats,
     scan_cancel: Arc<AtomicBool>,
     store: Option<Arc<ArchiveStore>>,
+    vector_index: Option<Arc<VectorIndex>>,
+    visual_progress: Option<(u32, u32)>,
+    visual_override: Option<Arc<[u32]>>,
+    pending_similar: Option<u32>,
     snapshot: SearchSnapshot,
     folder_modal: FolderModal,
     preview_modal: PreviewModal,
@@ -54,6 +66,8 @@ impl ArchiveApp {
         apply_theme(&cc.egui_ctx);
         let (cmd_tx, cmd_rx) = unbounded();
         let (ev_tx, ev_rx) = unbounded();
+        let gpu_cancel = Arc::new(AtomicBool::new(false));
+        let (gpu_tx, gpu_rx) = spawn_gpu_worker(cc.egui_ctx.clone(), Arc::clone(&gpu_cancel));
         let telemetry_rx = spawn_telemetry(cc.egui_ctx.clone());
         let scan_cancel = Arc::new(AtomicBool::new(false));
         spawn_worker(cmd_rx, ev_tx, cc.egui_ctx.clone(), Arc::clone(&scan_cancel));
@@ -64,10 +78,17 @@ impl ArchiveApp {
             locale: Locale::default(),
             cmd_tx,
             ev_rx,
+            gpu_tx,
+            gpu_rx,
+            gpu_cancel,
             telemetry_rx,
             resources: ResourceStats::default(),
             scan_cancel,
             store: None,
+            vector_index: None,
+            visual_progress: None,
+            visual_override: None,
+            pending_similar: None,
             snapshot: SearchSnapshot::default(),
             folder_modal: FolderModal::default(),
             preview_modal: PreviewModal::new(cc.egui_ctx.clone()),
@@ -92,6 +113,20 @@ impl ArchiveApp {
         while let Ok(res) = self.telemetry_rx.try_recv() {
             self.resources = res;
         }
+        while let Ok(gev) = self.gpu_rx.try_recv() {
+            match gev {
+                GpuEvent::Progress { done, total } => {
+                    self.visual_progress = Some((done, total))
+                }
+                GpuEvent::Complete(idx) => {
+                    self.vector_index = Some(idx);
+                    self.visual_progress = None;
+                    if let Some(fid) = self.pending_similar.take() {
+                        self.run_find_similar(fid);
+                    }
+                }
+            }
+        }
         while let Ok(ev) = self.ev_rx.try_recv() {
             match ev {
                 UiEvent::ScanStarted => {
@@ -101,6 +136,8 @@ impl ArchiveApp {
                     self.error_msg = None;
                     self.selected_dir = None;
                     self.selected_file = None;
+                    self.vector_index = None;
+                    self.visual_override = None;
                     self.thumbs.clear();
                 }
                 UiEvent::ScanProgress {
@@ -126,6 +163,61 @@ impl ArchiveApp {
                 }
             }
         }
+    }
+
+    fn start_visual_index(&mut self) {
+        if let Some(ref st) = self.store {
+            self.visual_progress = Some((0, 0));
+            let _ = self.gpu_tx.send(GpuCmd::IndexArchive(Arc::clone(st)));
+        }
+    }
+
+    fn run_find_similar(&mut self, fid: u32) {
+        let Some(ref idx) = self.vector_index else {
+            self.pending_similar = Some(fid);
+            self.start_visual_index();
+            return;
+        };
+        let Some(ref st) = self.store else {
+            return;
+        };
+        let results = if let Some(qvec) = (!self.query.is_empty())
+            .then(|| idx.vector_for_file(fid))
+            .flatten()
+        {
+            let mut gpu_bits = idx.match_bitset(qvec, 0.90, st.file_count());
+            let mut cpu_bits = Bitset::new_empty(st.file_count());
+            for &id in self.snapshot.matched_files.iter() {
+                cpu_bits.set(id as usize);
+            }
+            gpu_bits.and_with(&cpu_bits);
+            gpu_bits.collect_indices()
+        } else {
+            find_similar_files(idx, fid, 120, 0.90)
+        };
+        self.visual_override = Some(Arc::from(results));
+    }
+
+    fn run_find_duplicates(&mut self) {
+        if let Some(ref idx) = self.vector_index {
+            let dups = find_visual_duplicates(idx, 0.992, 500);
+            self.visual_override = Some(Arc::from(dups));
+        } else {
+            self.start_visual_index();
+        }
+    }
+
+    fn visual_status_text(&self) -> Option<String> {
+        if let Some((done, total)) = self.visual_progress {
+            return Some(format!("Visual: {done}/{total}"));
+        }
+        self.vector_index.as_ref().map(|idx| {
+            format!(
+                "Visual: {} vecs ({})",
+                idx.len(),
+                format_bytes(idx.memory_bytes() as u64)
+            )
+        })
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
@@ -157,6 +249,13 @@ impl ArchiveApp {
             PaletteCmd::RescanFolder => self.rescan_current(),
             PaletteCmd::OpenMerge => self.merge_modal.open_picker(self.selected_dir),
             PaletteCmd::UndoMerge => self.trigger_undo(),
+            PaletteCmd::IndexVisual => self.start_visual_index(),
+            PaletteCmd::FindSimilar => {
+                if let Some(fid) = self.selected_file {
+                    self.run_find_similar(fid);
+                }
+            }
+            PaletteCmd::FindDuplicates => self.run_find_duplicates(),
             PaletteCmd::ViewList => self.view_mode = ViewMode::List,
             PaletteCmd::ViewGrid => self.view_mode = ViewMode::Grid,
             PaletteCmd::SmartImages => {
@@ -174,6 +273,7 @@ impl ArchiveApp {
             PaletteCmd::ClearFilters => {
                 self.query.clear();
                 self.selected_dir = None;
+                self.visual_override = None;
                 self.dispatch_query();
             }
         }
@@ -196,6 +296,7 @@ impl ArchiveApp {
     }
 
     fn dispatch_query(&mut self) {
+        self.visual_override = None;
         self.gen_id = self.gen_id.saturating_add(1);
         let _ = self.cmd_tx.send(WorkerCmd::Query {
             gen_id: self.gen_id,
@@ -245,6 +346,7 @@ impl ArchiveApp {
                 snapshot: &self.snapshot,
                 resources: self.resources,
                 thumb_vram_bytes: self.thumbs.vram_bytes(),
+                visual_status: self.visual_status_text(),
                 selected_file: self.selected_file,
                 scanning: self.scanning,
                 scan_dirs: self.scan_dirs,
@@ -254,6 +356,7 @@ impl ArchiveApp {
             };
             if show_status_bar(ui, tr, &info) {
                 self.scan_cancel.store(true, Ordering::Relaxed);
+                self.gpu_cancel.store(true, Ordering::Relaxed);
             }
         });
     }
@@ -282,6 +385,12 @@ impl eframe::App for ArchiveApp {
                     self.dispatch_query();
                 }
             });
+        let active_files: Arc<[u32]> = self
+            .visual_override
+            .as_ref()
+            .map_or_else(|| Arc::clone(&self.snapshot.matched_files), Arc::clone);
+
+        let mut req_similar = None;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::central_panel(&ctx.style())
@@ -289,18 +398,23 @@ impl eframe::App for ArchiveApp {
                     .inner_margin(8.0),
             )
             .show(ctx, |ui| {
-                if show_grid_panel(
+                let gact = show_grid_panel(
                     ui,
                     tr,
                     self.store.as_deref(),
-                    &self.snapshot.matched_files,
+                    &active_files,
                     &mut self.selected_file,
                     self.view_mode,
                     &mut self.thumbs,
-                ) {
+                );
+                if gact.pick_folder {
                     self.folder_modal.open_at(None, tr);
                 }
+                req_similar = gact.find_similar;
             });
+        if let Some(fid) = req_similar {
+            self.run_find_similar(fid);
+        }
         if let Some(cmd) = self.palette.show(ctx, tr) {
             self.apply_palette_cmd(cmd, tr);
         }
@@ -308,13 +422,8 @@ impl eframe::App for ArchiveApp {
             let _ = self.cmd_tx.send(WorkerCmd::ScanDir(dir));
         }
         if let Some(ref st) = self.store {
-            self.preview_modal.show(
-                ctx,
-                tr,
-                st,
-                &self.snapshot.matched_files,
-                &mut self.selected_file,
-            );
+            self.preview_modal
+                .show(ctx, tr, st, &active_files, &mut self.selected_file);
             if let Some(entry) =
                 self.merge_modal
                     .show(ctx, tr, st, &self.snapshot.visible_dirs)
@@ -326,6 +435,8 @@ impl eframe::App for ArchiveApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.gpu_cancel.store(true, Ordering::Relaxed);
+        let _ = self.gpu_tx.send(GpuCmd::Shutdown);
         let _ = self.cmd_tx.send(WorkerCmd::Shutdown);
     }
 }
