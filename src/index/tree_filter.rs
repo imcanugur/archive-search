@@ -24,6 +24,10 @@ pub fn build_dir_allowed(store: &ArchiveStore, query: &ParsedQuery) -> Bitset {
         let finder = Finder::new(dir_term.as_bytes());
         allowed.and_with(&propagate_dir_finder(store, &finder));
     }
+    for ex_dir in &query.exclude_dir_terms {
+        let finder = Finder::new(ex_dir.as_bytes());
+        allowed.and_not_with(&propagate_dir_finder(store, &finder));
+    }
     allowed
 }
 

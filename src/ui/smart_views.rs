@@ -37,17 +37,20 @@ pub fn render_smart_views_card(
             if smart_row(ui, "All Media", &format!("{total}"), false) {
                 act.smart_query = Some("");
             }
-            if smart_row(ui, "Photos (JPG)", "ext:jpg", false) {
-                act.smart_query = Some("ext:jpg");
+            if smart_row(ui, "All Photos", "type:photo", false) {
+                act.smart_query = Some("type:photo");
             }
-            if smart_row(ui, "Videos (MP4)", "ext:mp4", false) {
-                act.smart_query = Some("ext:mp4");
+            if smart_row(ui, "RAW Camera", "type:raw", false) {
+                act.smart_query = Some("type:raw");
+            }
+            if smart_row(ui, "All Videos", "type:video", false) {
+                act.smart_query = Some("type:video");
+            }
+            if smart_row(ui, "Large (>50MB)", "size:>50mb", false) {
+                act.smart_query = Some("size:>50mb");
             }
             if smart_row(ui, "Visual Duplicates", "Dedup", true) {
                 act.find_duplicates = true;
-            }
-            if smart_row(ui, "Large (>50MB)", ">50MB", false) {
-                act.smart_query = Some("size:>50mb");
             }
         });
 }
@@ -115,16 +118,30 @@ pub fn render_dir_row(
                         merge_queue.retain(|&id| id != row.dir_id);
                     }
                 }
-                if ui.selectable_label(is_sel, store.dir_name(row.dir_id)).clicked() {
+                if ui
+                    .selectable_label(is_sel, store.dir_name(row.dir_id))
+                    .clicked()
+                {
                     clicked = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let col = if queued || is_sel { PRIMARY } else { ON_SURFACE_VARIANT };
-                    let bg = if queued { PRIMARY_FIXED } else { egui::Color32::TRANSPARENT };
-                    Frame::none().fill(bg).rounding(Rounding::same(8.0)).show(ui, |ui| {
-                        let cnt = format!("{}", row.match_count);
-                        ui.label(RichText::new(cnt).monospace().color(col));
-                    });
+                    let col = if queued || is_sel {
+                        PRIMARY
+                    } else {
+                        ON_SURFACE_VARIANT
+                    };
+                    let bg = if queued {
+                        PRIMARY_FIXED
+                    } else {
+                        egui::Color32::TRANSPARENT
+                    };
+                    Frame::none()
+                        .fill(bg)
+                        .rounding(Rounding::same(8.0))
+                        .show(ui, |ui| {
+                            let cnt = format!("{}", row.match_count);
+                            ui.label(RichText::new(cnt).monospace().color(col));
+                        });
                 });
             });
         });

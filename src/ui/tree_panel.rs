@@ -78,7 +78,8 @@ fn render_dir_tree_card(
                 .show_rows(ui, ROW_HEIGHT, visible_dirs.len(), |ui, range| {
                     for row in visible_dirs.get(range).unwrap_or(&[]) {
                         if render_dir_row(ui, st, *row, selected_dir, merge_queue) {
-                            let toggled = (selected_dir != Some(row.dir_id)).then_some(row.dir_id);
+                            let toggled =
+                                (selected_dir != Some(row.dir_id)).then_some(row.dir_id);
                             act.select_dir = Some(toggled);
                         }
                     }

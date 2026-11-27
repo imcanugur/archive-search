@@ -5,9 +5,10 @@ use memchr::memmem::Finder;
 use rayon::prelude::*;
 
 use crate::index::bitset::Bitset;
-use crate::index::query::ParsedQuery;
+use crate::index::query::{ParsedQuery, TypeFilter};
 use crate::index::store::ArchiveStore;
 use crate::index::tree_filter::{build_dir_allowed, collapse_dir_tree, propagate_dir_finder};
+use crate::index::MediaKind;
 use crate::messages::SearchSnapshot;
 
 const CHUNK_FILES: usize = 4096;
@@ -19,7 +20,10 @@ struct SearchCtx<'a> {
     dir_allowed: &'a Bitset,
     finders: &'a [Finder<'a>],
     term_in_dir: &'a [Bitset],
+    ex_finders: &'a [Finder<'a>],
+    ex_in_dir: &'a [Bitset],
     ext_ids: &'a [u16],
+    ex_ext_ids: &'a [u16],
 }
 
 pub fn execute_search(
@@ -38,24 +42,40 @@ pub fn execute_search(
         .iter()
         .map(|f| propagate_dir_finder(store, f))
         .collect();
+    let ex_finders: Vec<Finder<'_>> = query
+        .exclude_terms
+        .iter()
+        .map(|t| Finder::new(t.as_bytes()))
+        .collect();
+    let ex_in_dir: Vec<Bitset> = ex_finders
+        .iter()
+        .map(|f| propagate_dir_finder(store, f))
+        .collect();
     let ext_ids: Vec<u16> = query
         .ext_filters
         .iter()
-        .filter_map(|ext| store.find_ext_id(ext))
+        .filter_map(|e| store.find_ext_id(e))
+        .collect();
+    let ex_ext_ids: Vec<u16> = query
+        .exclude_ext_filters
+        .iter()
+        .filter_map(|e| store.find_ext_id(e))
         .collect();
 
     let matched_files = if !query.ext_filters.is_empty() && ext_ids.is_empty() {
         Vec::new()
     } else {
-        let ctx = SearchCtx {
+        filter_files_parallel(&SearchCtx {
             store,
             query,
             dir_allowed: &dir_allowed,
             finders: &finders,
             term_in_dir: &term_in_dir,
+            ex_finders: &ex_finders,
+            ex_in_dir: &ex_in_dir,
             ext_ids: &ext_ids,
-        };
-        filter_files_parallel(&ctx)
+            ex_ext_ids: &ex_ext_ids,
+        })
     };
 
     let visible_dirs = collapse_dir_tree(store, &matched_files, query.selected_dir);
@@ -101,18 +121,40 @@ fn file_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
         return false;
     }
     let fname = ctx.store.file_folded(idx as u32);
-    ctx.finders.iter().enumerate().all(|(t, f)| {
+    let inc_ok = ctx.finders.iter().enumerate().all(|(t, f)| {
         ctx.term_in_dir.get(t).is_some_and(|m| m.get(dir_id)) || f.find(fname).is_some()
+    });
+    if !inc_ok {
+        return false;
+    }
+    !ctx.ex_finders.iter().enumerate().any(|(t, f)| {
+        ctx.ex_in_dir.get(t).is_some_and(|m| m.get(dir_id)) || f.find(fname).is_some()
     })
 }
 
 fn meta_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
-    if !ctx.ext_ids.is_empty()
-        && !ctx
-            .ext_ids
-            .contains(&ctx.store.file_ext.get(idx).copied().unwrap_or(0))
+    let ext_id = ctx.store.file_ext.get(idx).copied().unwrap_or(0);
+    if (!ctx.ext_ids.is_empty() && !ctx.ext_ids.contains(&ext_id))
+        || ctx.ex_ext_ids.contains(&ext_id)
     {
         return false;
+    }
+    if !ctx.query.type_filters.is_empty() {
+        let kind = ctx
+            .store
+            .file_kind
+            .get(idx)
+            .copied()
+            .unwrap_or(MediaKind::Other);
+        let ok = ctx.query.type_filters.iter().any(|&tf| match tf {
+            TypeFilter::Image => kind == MediaKind::Image,
+            TypeFilter::Video => kind == MediaKind::Video,
+            TypeFilter::Raw => ctx.store.is_raw_ext_id(ext_id),
+            TypeFilter::Other => kind == MediaKind::Other,
+        });
+        if !ok {
+            return false;
+        }
     }
     let size = ctx.store.file_size.get(idx).copied().unwrap_or(0);
     if ctx.query.min_size.is_some_and(|m| size < m)
@@ -120,19 +162,15 @@ fn meta_matches(ctx: &SearchCtx<'_>, idx: usize) -> bool {
     {
         return false;
     }
-    if ctx
-        .query
-        .year_filter
-        .is_some_and(|y| ctx.store.file_year.get(idx).copied().unwrap_or(0) != y)
+    let year = ctx.store.file_year.get(idx).copied().unwrap_or(0);
+    if ctx.query.min_year.is_some_and(|y| year == 0 || year < y)
+        || ctx.query.max_year.is_some_and(|y| year == 0 || year > y)
     {
         return false;
     }
-    if !ctx.query.cam_filters.is_empty() {
+    ctx.query.cam_filters.is_empty() || {
         let cam_id = ctx.store.file_cam.get(idx).copied().unwrap_or(0);
         let cam = ctx.store.cam_name(cam_id).to_ascii_lowercase();
-        if !ctx.query.cam_filters.iter().any(|c| cam.contains(c)) {
-            return false;
-        }
+        ctx.query.cam_filters.iter().any(|c| cam.contains(c))
     }
-    true
 }

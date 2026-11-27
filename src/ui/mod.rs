@@ -1,5 +1,6 @@
 pub mod command_palette;
 pub mod dual_pane;
+pub mod filter_bar;
 mod folder_fs;
 pub mod folder_modal;
 pub mod grid_panel;

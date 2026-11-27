@@ -43,7 +43,12 @@ impl ArchiveApp {
                 UiEvent::ScanComplete { store, elapsed_ms } => {
                     self.store = Some(store);
                     self.scanning = false;
-                    self.last_scan_ms = Some(elapsed_ms);
+                    if elapsed_ms > 0 || self.last_scan_ms.is_none() {
+                        self.last_scan_ms = Some(elapsed_ms);
+                    }
+                }
+                UiEvent::SizeProgress { done, total } => {
+                    self.size_progress = (done < total).then_some((done, total));
                 }
                 UiEvent::ScanError(msg) => {
                     self.scanning = false;
@@ -62,6 +67,7 @@ impl ArchiveApp {
         self.scanning = true;
         self.scan_dirs = 0;
         self.scan_files = 0;
+        self.size_progress = None;
         self.error_msg = None;
         self.selected_dir = None;
         self.selected_file = None;

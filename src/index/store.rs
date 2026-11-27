@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::error::AppError;
 use crate::index::arena::{fold_into, ByteArena};
 use crate::index::meta::extract_year_from_name;
+use crate::index::stat_backfill::epoch_secs_to_year;
 use crate::index::{MediaKind, Span32};
 
 pub struct FileRecord<'a> {
@@ -98,7 +99,11 @@ impl ArchiveStore {
         self.file_ext.push(ext_id);
         self.file_size.push(rec.size);
         self.file_mtime.push(rec.mtime);
-        self.file_year.push(extract_year_from_name(rec.name));
+        let mut year = extract_year_from_name(rec.name);
+        if year == 0 && rec.mtime > 0 {
+            year = epoch_secs_to_year(rec.mtime);
+        }
+        self.file_year.push(year);
         self.file_cam.push(0);
         self.file_kind.push(MediaKind::from_ext(rec.ext));
         Ok(id)

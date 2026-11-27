@@ -63,6 +63,7 @@ pub struct ArchiveApp {
     pub(super) scanning: bool,
     pub(super) scan_dirs: u32,
     pub(super) scan_files: u32,
+    pub(super) size_progress: Option<(u32, u32)>,
     pub(super) last_scan_ms: Option<u64>,
     pub(super) error_msg: Option<String>,
 }
@@ -76,7 +77,14 @@ impl ArchiveApp {
         let (gpu_tx, gpu_rx) = spawn_gpu_worker(cc.egui_ctx.clone(), Arc::clone(&gpu_cancel));
         let telemetry_rx = spawn_telemetry(cc.egui_ctx.clone());
         let scan_cancel = Arc::new(AtomicBool::new(false));
-        spawn_worker(cmd_rx, ev_tx, cc.egui_ctx.clone(), Arc::clone(&scan_cancel));
+        let ctx = cc.egui_ctx.clone();
+        spawn_worker(
+            cmd_tx.clone(),
+            cmd_rx,
+            ev_tx,
+            ctx.clone(),
+            Arc::clone(&scan_cancel),
+        );
         if let Some(root) = initial_root {
             let _ = cmd_tx.send(WorkerCmd::ScanDir(root));
         }
@@ -97,16 +105,16 @@ impl ArchiveApp {
             pending_similar: None,
             snapshot: SearchSnapshot::default(),
             folder_modal: FolderModal::default(),
-            preview_modal: PreviewModal::new(cc.egui_ctx.clone()),
+            preview_modal: PreviewModal::new(ctx.clone()),
             merge_modal: MergeModal::default(),
-            inspector: InspectorPanel::new(cc.egui_ctx.clone()),
+            inspector: InspectorPanel::new(ctx.clone()),
             show_inspector: true,
             palette: CommandPalette::default(),
             dual_pane: DualPaneState::default(),
             dual_mode: false,
             merge_queue: Vec::new(),
             journal: UndoJournal::default(),
-            thumbs: ThumbCache::new(cc.egui_ctx.clone()),
+            thumbs: ThumbCache::new(ctx),
             view_mode: ViewMode::default(),
             query: String::new(),
             gen_id: 0,
@@ -115,6 +123,7 @@ impl ArchiveApp {
             scanning: false,
             scan_dirs: 0,
             scan_files: 0,
+            size_progress: None,
             last_scan_ms: None,
             error_msg: None,
         }

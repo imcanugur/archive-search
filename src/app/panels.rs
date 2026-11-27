@@ -36,6 +36,7 @@ impl ArchiveApp {
             dual_pane: &mut self.dual_mode,
             show_inspector: &mut self.show_inspector,
             scanning: self.scanning,
+            size_progress: self.size_progress,
         };
         let act = show_top_bar(ui, tr, &mut st);
         if act.pick_folder {
@@ -50,7 +51,11 @@ impl ArchiveApp {
         if act.find_duplicates {
             self.run_find_duplicates();
         }
-        if act.go_up {
+        if act.clear_all {
+            self.query.clear();
+            self.selected_dir = None;
+            self.dispatch_query();
+        } else if act.go_up {
             self.navigate_parent_dir();
         } else if let Some(dir) = act.select_dir {
             self.selected_dir = dir;
@@ -96,6 +101,8 @@ impl ArchiveApp {
         egui::SidePanel::left("tree_panel")
             .frame(frame)
             .default_width(265.0)
+            .min_width(210.0)
+            .max_width(420.0)
             .resizable(true)
             .show(ctx, |ui| {
                 let act = show_tree_panel(

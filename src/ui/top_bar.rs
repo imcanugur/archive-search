@@ -2,6 +2,7 @@ use egui::{Button, RichText, Rounding, Ui};
 
 use crate::i18n::Strings;
 use crate::index::store::ArchiveStore;
+use crate::ui::filter_bar::render_filter_bar;
 use crate::ui::grid_panel::ViewMode;
 use crate::ui::theme::{ON_SURFACE, PRIMARY, SECONDARY, SURFACE_LOWEST, TERTIARY};
 use crate::ui::top_bar_widgets::{render_breadcrumbs, render_search_capsule};
@@ -15,11 +16,13 @@ pub struct TopBarState<'a> {
     pub dual_pane: &'a mut bool,
     pub show_inspector: &'a mut bool,
     pub scanning: bool,
+    pub size_progress: Option<(u32, u32)>,
 }
 
 #[derive(Default)]
 pub struct TopBarAction {
     pub query_changed: bool,
+    pub clear_all: bool,
     pub pick_folder: bool,
     pub select_dir: Option<Option<u32>>,
     pub go_up: bool,
@@ -33,6 +36,10 @@ pub fn show_top_bar(ui: &mut Ui, tr: &Strings, st: &mut TopBarState<'_>) -> TopB
     render_tab_strip(ui, tr, st, &mut act);
     ui.separator();
     render_command_strip(ui, tr, st, &mut act);
+    ui.separator();
+    let fb = render_filter_bar(ui, st.query, st.selected_dir.is_some(), st.size_progress);
+    act.query_changed |= fb.query_changed;
+    act.clear_all = fb.clear_all;
     act
 }
 

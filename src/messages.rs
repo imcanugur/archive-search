@@ -8,6 +8,7 @@ use crate::index::VisibleDir;
 pub enum WorkerCmd {
     ScanDir(PathBuf),
     RescanDir(PathBuf),
+    ApplyBackfill(Arc<ArchiveStore>),
     Query {
         gen_id: u64,
         raw: String,
@@ -45,6 +46,10 @@ pub enum UiEvent {
     ScanComplete {
         store: Arc<ArchiveStore>,
         elapsed_ms: u64,
+    },
+    SizeProgress {
+        done: u32,
+        total: u32,
     },
     ScanError(String),
     SearchResult(SearchSnapshot),

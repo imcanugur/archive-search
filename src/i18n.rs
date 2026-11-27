@@ -70,7 +70,7 @@ pub const EN: Strings = Strings {
     open_folder_btn: "Open Folder",
     up_btn: "Up",
     address_placeholder: "Select an archive folder...",
-    search_hint: "Search files (ext:mp4 date:2024 dir:antalya)",
+    search_hint: "Search: type:raw ext:jpg,png size:>10mb year:2022..2025 -thumb",
     view_list: "List",
     view_grid: "Grid",
     ctx_open: "Open in External Player",

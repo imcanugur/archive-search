@@ -54,8 +54,8 @@ impl ArchiveApp {
             PaletteCmd::FindDuplicates => self.run_find_duplicates(),
             PaletteCmd::ViewList => self.view_mode = ViewMode::List,
             PaletteCmd::ViewGrid => self.view_mode = ViewMode::Grid,
-            PaletteCmd::SmartImages => self.set_smart_query("ext:jpg"),
-            PaletteCmd::SmartVideos => self.set_smart_query("ext:mp4"),
+            PaletteCmd::SmartImages => self.set_smart_query("type:photo"),
+            PaletteCmd::SmartVideos => self.set_smart_query("type:video"),
             PaletteCmd::SmartLarge => self.set_smart_query("size:>50mb"),
             PaletteCmd::ClearFilters => {
                 self.query.clear();

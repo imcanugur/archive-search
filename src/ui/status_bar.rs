@@ -25,7 +25,11 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
     ui.horizontal(|ui| {
         if let Some(err) = info.error_msg {
             let msg = format!("{}: {err}", tr.status_error_prefix);
-            ui.label(RichText::new(msg).small().color(Color32::from_rgb(186, 26, 26)));
+            ui.label(
+                RichText::new(msg)
+                    .small()
+                    .color(Color32::from_rgb(186, 26, 26)),
+            );
             return;
         }
         if info.scanning {
@@ -34,7 +38,11 @@ pub fn show_status_bar(ui: &mut Ui, tr: &Strings, info: &StatusInfo<'_>) -> bool
             return;
         }
         let Some(st) = info.store else {
-            ui.label(RichText::new(tr.status_ready).small().color(ON_SURFACE_VARIANT));
+            ui.label(
+                RichText::new(tr.status_ready)
+                    .small()
+                    .color(ON_SURFACE_VARIANT),
+            );
             render_resources_right(ui, tr, info.resources, info.thumb_vram_bytes, None);
             return;
         };

@@ -41,6 +41,12 @@ impl Bitset {
         }
     }
 
+    pub fn and_not_with(&mut self, other: &Self) {
+        for (dst, src) in self.words.iter_mut().zip(other.words.iter()) {
+            *dst &= !*src;
+        }
+    }
+
     pub fn count_ones(&self) -> u32 {
         self.words.iter().map(|w| w.count_ones()).sum()
     }

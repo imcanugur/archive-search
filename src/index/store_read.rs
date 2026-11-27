@@ -21,6 +21,18 @@ impl ArchiveStore {
         self.ext_map.get(ext_lower).copied()
     }
 
+    pub fn is_raw_ext_id(&self, id: u16) -> bool {
+        let ext = self.ext_table.get(id as usize).map_or("", String::as_str);
+        matches!(
+            ext,
+            "raw" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "orf" | "rw2"
+        )
+    }
+
+    pub fn sizes_populated(&self) -> bool {
+        self.file_mtime.is_empty() || self.file_mtime.iter().all(|&m| m != 0)
+    }
+
     pub fn cam_name(&self, id: u16) -> &str {
         self.cam_table.get(id as usize).map_or("", String::as_str)
     }
