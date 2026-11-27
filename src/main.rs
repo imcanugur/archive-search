@@ -3,6 +3,7 @@ mod error;
 mod i18n;
 mod index;
 mod messages;
+mod ops;
 mod ui;
 
 use std::path::PathBuf;

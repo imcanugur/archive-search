@@ -11,8 +11,11 @@ pub struct TopBarAction {
     pub pick_folder: bool,
     pub go_up: bool,
     pub clear_selected_dir: bool,
+    pub open_merge: bool,
+    pub trigger_undo: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn show_top_bar(
     ui: &mut Ui,
     tr: &Strings,
@@ -21,6 +24,7 @@ pub fn show_top_bar(
     selected_dir: Option<u32>,
     view_mode: &mut ViewMode,
     scanning: bool,
+    can_undo: bool,
 ) -> TopBarAction {
     let mut action = TopBarAction::default();
     ui.add_space(3.0);
@@ -38,6 +42,18 @@ pub fn show_top_bar(
         {
             action.go_up = true;
         }
+        if ui
+            .add_enabled(
+                store.is_some() && !scanning,
+                egui::Button::new(tr.dual_merge_btn),
+            )
+            .clicked()
+        {
+            action.open_merge = true;
+        }
+        if can_undo && ui.button(tr.merge_undo_btn).clicked() {
+            action.trigger_undo = true;
+        }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.selectable_value(view_mode, ViewMode::Grid, tr.view_grid);
@@ -49,7 +65,7 @@ pub fn show_top_bar(
                 action.query_changed = true;
             }
             let search_resp = ui.add_sized(
-                [240.0, 26.0],
+                [230.0, 26.0],
                 TextEdit::singleline(query)
                     .hint_text(tr.search_hint)
                     .margin(egui::vec2(8.0, 4.0)),
@@ -58,7 +74,7 @@ pub fn show_top_bar(
                 action.query_changed = true;
             }
 
-            let addr_w = ui.available_width().max(120.0);
+            let addr_w = ui.available_width().max(100.0);
             render_address_bar(ui, tr, store, selected_dir, addr_w, &mut action);
         });
     });
@@ -80,7 +96,7 @@ fn render_address_bar(
         .rounding(Rounding::same(4.0))
         .inner_margin(egui::Margin::symmetric(8.0, 4.0))
         .show(ui, |ui| {
-            ui.set_width((width - 18.0).max(80.0));
+            ui.set_width((width - 18.0).max(60.0));
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let text = match (store, selected_dir) {
                     (Some(st), Some(dir_id)) => st.dir_name(dir_id).to_owned(),

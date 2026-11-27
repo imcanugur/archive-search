@@ -109,6 +109,10 @@ impl ArchiveStore {
         id
     }
 
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
+    }
+
     pub fn dir_count(&self) -> usize {
         self.dir_parent.len()
     }
@@ -145,15 +149,21 @@ impl ArchiveStore {
             .map_or(&[], |&s| self.fold_arena.get_bytes(s))
     }
 
-    pub fn file_full_path(&self, id: u32) -> PathBuf {
+    pub fn dir_full_path(&self, id: u32) -> PathBuf {
         let mut parts = Vec::new();
-        let mut cur = self.file_dir.get(id as usize).copied().unwrap_or(0);
+        let mut cur = id;
         while cur != 0 {
             parts.push(self.dir_name(cur));
             cur = self.dir_parent.get(cur as usize).copied().unwrap_or(0);
         }
         let mut path = self.root.clone();
         parts.into_iter().rev().for_each(|p| path.push(p));
+        path
+    }
+
+    pub fn file_full_path(&self, id: u32) -> PathBuf {
+        let dir_id = self.file_dir.get(id as usize).copied().unwrap_or(0);
+        let mut path = self.dir_full_path(dir_id);
         path.push(self.file_name(id));
         path
     }

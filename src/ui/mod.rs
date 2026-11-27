@@ -1,8 +1,11 @@
 pub mod folder_modal;
 pub mod grid_panel;
+pub mod merge_modal;
 pub mod os_open;
+pub mod preview_modal;
 pub mod status_bar;
 pub mod theme;
+pub mod thumbs;
 pub mod top_bar;
 pub mod tree_panel;
 

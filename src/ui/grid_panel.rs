@@ -5,11 +5,12 @@ use crate::index::store::ArchiveStore;
 use crate::index::MediaKind;
 use crate::ui::os_open::handle_file_interaction;
 use crate::ui::theme::{ACCENT, BG_SELECTED, BG_SURFACE, BORDER_SUBTLE, TEXT_MUTED};
+use crate::ui::thumbs::ThumbCache;
 use crate::ui::{badge_color, format_bytes};
 
 const ROW_HEIGHT: f32 = 25.0;
 const CARD_WIDTH: f32 = 176.0;
-const CARD_HEIGHT: f32 = 76.0;
+const CARD_HEIGHT: f32 = 148.0;
 const CARD_GAP: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,6 +27,7 @@ pub fn show_grid_panel(
     matched_files: &[u32],
     selected_file: &mut Option<u32>,
     view_mode: ViewMode,
+    thumbs: &mut ThumbCache,
 ) -> bool {
     let Some(st) = store else {
         return render_empty_state(ui, tr);
@@ -38,7 +40,7 @@ pub fn show_grid_panel(
     }
     match view_mode {
         ViewMode::List => render_list_view(ui, tr, st, matched_files, selected_file),
-        ViewMode::Grid => render_grid_view(ui, tr, st, matched_files, selected_file),
+        ViewMode::Grid => render_grid_view(ui, tr, st, matched_files, selected_file, thumbs),
     }
     false
 }
@@ -154,6 +156,7 @@ fn render_grid_view(
     store: &ArchiveStore,
     matched_files: &[u32],
     selected_file: &mut Option<u32>,
+    thumbs: &mut ThumbCache,
 ) {
     let cols = ((ui.available_width().max(CARD_WIDTH) / (CARD_WIDTH + CARD_GAP)).floor()
         as usize)
@@ -169,7 +172,7 @@ fn render_grid_view(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = CARD_GAP;
                     for &fid in matched_files.get(start..end).unwrap_or(&[]) {
-                        render_tile(ui, tr, store, fid, selected_file);
+                        render_tile(ui, tr, store, fid, selected_file, thumbs);
                     }
                 });
             }
@@ -182,6 +185,7 @@ fn render_tile(
     store: &ArchiveStore,
     fid: u32,
     selected_file: &mut Option<u32>,
+    thumbs: &mut ThumbCache,
 ) {
     let is_sel = *selected_file == Some(fid);
     let kind = store
@@ -196,12 +200,33 @@ fn render_tile(
         .fill(fill)
         .stroke(stroke)
         .rounding(Rounding::same(4.0))
-        .inner_margin(8.0)
+        .inner_margin(6.0)
         .show(ui, |ui| {
-            ui.set_min_size(Vec2::new(CARD_WIDTH - 16.0, CARD_HEIGHT - 16.0));
-            ui.set_max_size(Vec2::new(CARD_WIDTH - 16.0, CARD_HEIGHT - 16.0));
+            ui.set_min_size(Vec2::new(CARD_WIDTH - 12.0, CARD_HEIGHT - 12.0));
+            ui.set_max_size(Vec2::new(CARD_WIDTH - 12.0, CARD_HEIGHT - 12.0));
             ui.vertical(|ui| {
-                ui.label(RichText::new(kind.badge()).small().color(badge_color(kind)));
+                let tex = if matches!(kind, MediaKind::Image | MediaKind::Video) {
+                    thumbs.get_or_request(fid, store.file_full_path(fid), kind)
+                } else {
+                    None
+                };
+                let box_sz = Vec2::new(CARD_WIDTH - 14.0, 92.0);
+                ui.allocate_ui(box_sz, |ui| {
+                    ui.centered_and_justified(|ui| {
+                        if let Some(t) = tex {
+                            let sz = t.size_vec2();
+                            let scale =
+                                (box_sz.x / sz.x.max(1.0)).min(box_sz.y / sz.y.max(1.0));
+                            ui.image((t.id(), sz * scale));
+                        } else {
+                            ui.label(
+                                RichText::new(kind.badge())
+                                    .strong()
+                                    .color(badge_color(kind)),
+                            );
+                        }
+                    });
+                });
                 ui.add(egui::Label::new(store.file_name(fid)).truncate());
                 ui.add(
                     egui::Label::new(
